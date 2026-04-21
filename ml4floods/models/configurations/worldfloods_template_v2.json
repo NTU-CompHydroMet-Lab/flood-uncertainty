@@ -1,0 +1,55 @@
+{
+    "experiment_name": "worldfloods_demo_test",
+    "seed": 12,
+    "model_params": {
+        "model_folder": "MODEL_PATH",
+        "model_version": "v2",
+        "hyperparameters": {
+            "max_tile_size": 256,
+            "metric_monitor": "val_bce_land_water",
+            "channel_configuration": "all",
+            "weight_problem": [0.2, 0.8],
+            "pos_weight": [1.0, 20.0],
+            "label_names": [["invalid", "clear", "cloud"],
+                            ["invalid", "land", "water"]],
+            "model_type": "unet",
+            "num_classes": 2,
+            "max_epochs": 30,
+            "val_every": 1,
+            "lr": 1e-4,
+            "lr_decay": 0.5,
+            "lr_patience": 2,
+            "early_stopping_patience": 45
+        },
+        "train": true,
+        "test": true
+    },
+    "data_params": {
+        "loader_type": "local",
+        "num_workers": 8,
+        "filter_windows": {
+            "version" : "v2",
+            "threshold_clouds" : 0.8,
+            "apply" : true
+        },
+        "download": {
+            "train": false,
+            "val": false,
+            "test": false
+        },
+        "bucket_id": "",
+        "path_to_splits": "DATASET_PATH",
+        "train_test_split_file": "DATASET_PATH/train_test_split_from_csv.json",
+        "input_folder": "S2",
+        "target_folder": "gt",
+        "batch_size": 128,
+        "window_size": [256, 256],
+        "channel_configuration": "all",
+        "train_transformation": {
+            "normalize": true
+        },
+        "test_transformation": {
+            "normalize": true
+        }
+    }
+}
