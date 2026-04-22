@@ -217,7 +217,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["ensemble", "mcdropout"], default=CONFIG["mode"])
     parser.add_argument("--config", default=CONFIG["config_path"])
-    parser.add_argument("--config_mode", choices=["train", "infer"], default=CONFIG["config_mode"])
+    parser.add_argument("--config_mode", choices=["infer"], default=CONFIG["config_mode"])
     args, _ = parser.parse_known_args()
     CONFIG["mode"] = args.mode
     CONFIG["config_path"] = args.config

@@ -33,7 +33,7 @@ DATASET_PATH = "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data"
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "edl.json")
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-parser.add_argument("--mode", default="train", choices=["train", "infer"])
+parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode=args.mode)
 

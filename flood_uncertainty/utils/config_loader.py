@@ -5,6 +5,15 @@ from typing import Any, Dict
 from ml4floods.data.worldfloods.configs import CHANNELS_CONFIGURATIONS
 from ml4floods.models.utils.configuration import AttrDict
 
+SUPPORTED_MODES = {"train", "infer", "validate_only"}
+REQUIRED_TOP_LEVEL_BLOCKS = {"shared", "train", "infer", "validate_only"}
+LEGACY_MODE_FLAGS = {"train", "test", "val_only"}
+RUNTIME_MODE_FLAGS = {
+    "train": {"train": True, "test": False, "val_only": False},
+    "infer": {"train": False, "test": True, "val_only": False},
+    "validate_only": {"train": False, "test": True, "val_only": True},
+}
+
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     merged = copy.deepcopy(base)
@@ -54,19 +63,56 @@ def _normalize_and_validate(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     return config_dict
 
 
+def _validate_top_level_schema(raw: Dict[str, Any], config_path: str) -> None:
+    missing = sorted(REQUIRED_TOP_LEVEL_BLOCKS - set(raw.keys()))
+    if missing:
+        raise ValueError(
+            f"Config must contain top-level blocks {sorted(REQUIRED_TOP_LEVEL_BLOCKS)}; "
+            f"missing: {missing} ({config_path})"
+        )
+
+    for block_name in REQUIRED_TOP_LEVEL_BLOCKS:
+        if not isinstance(raw.get(block_name), dict):
+            raise ValueError(f"Config block '{block_name}' must be a JSON object: {config_path}")
+
+
+def _validate_no_legacy_mode_flags(raw: Dict[str, Any], config_path: str) -> None:
+    for block_name in REQUIRED_TOP_LEVEL_BLOCKS:
+        model_params = raw[block_name].get("model_params")
+        if not isinstance(model_params, dict):
+            continue
+        legacy_keys = sorted(LEGACY_MODE_FLAGS.intersection(model_params.keys()))
+        if legacy_keys:
+            raise ValueError(
+                f"Remove legacy flags {legacy_keys} from '{block_name}.model_params' in {config_path}; "
+                "mode flags are runtime-only."
+            )
+
+
+def _apply_runtime_mode_flags(config_dict: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    if mode not in RUNTIME_MODE_FLAGS:
+        raise ValueError(f"Unsupported mode: {mode}")
+
+    model_params = config_dict.setdefault("model_params", {})
+    for key, value in RUNTIME_MODE_FLAGS[mode].items():
+        model_params[key] = value
+    config_dict["runtime_mode"] = mode
+    return config_dict
+
+
 def load_mode_config(config_path: str, mode: str = "train") -> AttrDict:
     with open(config_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
     if not isinstance(raw, dict):
         raise ValueError(f"Config file must contain a JSON object: {config_path}")
+    if mode not in SUPPORTED_MODES:
+        raise ValueError(f"Unsupported mode '{mode}'. Expected one of {sorted(SUPPORTED_MODES)}")
 
-    if "shared" in raw:
-        if mode not in raw:
-            raise ValueError(f"Mode '{mode}' not found in config: {config_path}")
-        merged = _deep_merge(raw["shared"], raw[mode])
-    else:
-        merged = raw
+    _validate_top_level_schema(raw, config_path)
+    _validate_no_legacy_mode_flags(raw, config_path)
 
+    merged = _deep_merge(raw["shared"], raw[mode])
     normalized = _normalize_and_validate(merged)
-    return AttrDict.from_nested_dicts(normalized)
+    with_runtime_flags = _apply_runtime_mode_flags(normalized, mode)
+    return AttrDict.from_nested_dicts(with_runtime_flags)

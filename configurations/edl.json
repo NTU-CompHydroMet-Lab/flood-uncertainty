@@ -85,17 +85,13 @@
     "wandb_project": "ML4FloodsUncertainty_saveZarr"
   },
   "train": {
-    "model_params": {
-      "train": true,
-      "val_only": false,
-      "test": false
-    }
+    "model_params": {}
   },
   "infer": {
+    "model_params": {}
+  },
+  "validate_only": {
     "model_params": {
-      "train": false,
-      "val_only": true,
-      "test": false,
       "zarr_save_path": "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/val/val_results_WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_saved_temp.zarr"
     }
   }

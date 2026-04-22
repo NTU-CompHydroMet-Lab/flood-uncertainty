@@ -246,7 +246,15 @@ def load_model(config_path: str, model_type: str, collection_name: str = "S2", m
     elif model_type == "EDL-SAR":
         model = EDL_SAR_Unet(config.model_params)
     elif model_type == "v2":
+        # We load weights manually from `pretrained_path`, so temporarily force train-mode
+        # model construction to avoid auto-loading path assertions in get_model(test=True).
+        original_train_flag = config.model_params.get("train", False)
+        original_test_flag = config.model_params.get("test", False)
+        config["model_params"]["train"] = True
+        config["model_params"]["test"] = False
         model = get_model(config.model_params)
+        config["model_params"]["train"] = original_train_flag
+        config["model_params"]["test"] = original_test_flag
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 

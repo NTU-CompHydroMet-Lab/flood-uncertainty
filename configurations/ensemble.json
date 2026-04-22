@@ -90,17 +90,12 @@
     "wandb_project": "wf_improvements_ensemble"
   },
   "train": {
-    "model_params": {
-      "train": true,
-      "val_only": false,
-      "test": false
-    }
+    "model_params": {}
   },
   "infer": {
-    "model_params": {
-      "train": false,
-      "val_only": true,
-      "test": false
-    }
+    "model_params": {}
+  },
+  "validate_only": {
+    "model_params": {}
   }
 }

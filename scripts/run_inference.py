@@ -166,7 +166,11 @@ if __name__ == "__main__":
     else:
         config_path = CONFIG["config_path_v2"]
     
-    model, channels, config = load_model(config_path=config_path, model_type=model_type)
+    model, channels, config = load_model(
+        config_path=config_path,
+        model_type=model_type,
+        mode="infer",
+    )
     inference_function, config = load_inference_function(
         model, config,
         max_tile_size=CONFIG["max_tile_size"],
