@@ -16,7 +16,7 @@ from ml4floods.models.utils import metrics
 from ml4floods.data.worldfloods.configs import COLORS_WORLDFLOODS_INVCLEARCLOUD, COLORS_WORLDFLOODS_INVLANDWATER
 import pytorch_lightning as pl
 from ml4floods.models.worldfloods_model import batch_to_unnorm_rgb, mask_to_rgb
-import losses_uncertainty
+from flood_uncertainty.losses import edl_loss as losses_uncertainty
 import xarray as xr 
 class EDL_ML4FloodsModel(pl.LightningModule):
     """
@@ -614,5 +614,4 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
         # Clear memory
         self.epoch_cms = {}
         
-
 

@@ -8,7 +8,7 @@ from tqdm import tqdm
 import pandas as pd
 from georeader.rasterio_reader import RasterioReader
 
-from matrics import plot_spatial_confusion_matrix
+from flood_uncertainty.metrics.segmentation import plot_spatial_confusion_matrix
 
 # ========================================
 # 2. CONFIGURATION

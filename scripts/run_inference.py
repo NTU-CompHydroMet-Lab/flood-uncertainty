@@ -3,6 +3,7 @@
 # ========================================
 import sys
 import os
+import argparse
 from glob import glob
 from pathlib import Path
 from tqdm import tqdm
@@ -10,11 +11,10 @@ from tqdm import tqdm
 # 設定 project root 和 sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
-sys.path.insert(0, os.path.join(project_root, 'CJ_scripts'))
 sys.path.insert(0, project_root)
 
 # 從 infer.py 匯入必要函數
-from infer import (
+from flood_uncertainty.inference.infer import (
     load_model,
     load_inference_function,
     predict,
@@ -39,8 +39,8 @@ CONFIG = {
     "save_pred_tif": True,        # 是否存預測結果
     "th_water": 0.5,               # 水體閾值
     "max_tile_size": 1024,
-    "config_path_EDL": "CJ_scripts/configurations/hf_hub_download_uncertainty_infer.json",
-    "config_path_v2": "CJ_scripts/configurations/hf_hub_download.json"
+    "config_path_EDL": os.path.join(project_root, "configurations", "edl.json"),
+    "config_path_v2": os.path.join(project_root, "configurations", "v2.json")
 }
 
 # ========================================
@@ -136,6 +136,15 @@ def process_single_file(
 # 4. MAIN EXECUTION
 # ========================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_type", choices=["EDL", "v2"], default=CONFIG["model_type"])
+    parser.add_argument("--config_edl", default=CONFIG["config_path_EDL"])
+    parser.add_argument("--config_v2", default=CONFIG["config_path_v2"])
+    args, _ = parser.parse_known_args()
+    CONFIG["model_type"] = args.model_type
+    CONFIG["config_path_EDL"] = args.config_edl
+    CONFIG["config_path_v2"] = args.config_v2
+
     # 解析配置
     model_type = CONFIG["model_type"]
     input_type = CONFIG["input_type"]

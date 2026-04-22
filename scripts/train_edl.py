@@ -1,5 +1,6 @@
 import sys
 import os
+import argparse
 # 計算到專案根目錄的相對路徑
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
@@ -14,13 +15,13 @@ from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
-from ml4floods.models.config_setup import get_default_config
+from flood_uncertainty.utils.config_loader import load_mode_config
 from ml4floods.models.dataset_setup import get_dataset
 # from ml4floods.models.model_setup import get_model
 from ml4floods.models import worldfloods_model
 from ml4floods.data.worldfloods import configs
 from ml4floods.visualization import plot_utils
-from model import EDL_ML4FloodsModel
+from flood_uncertainty.models.edl import EDL_ML4FloodsModel
 import torch
 
 
@@ -29,8 +30,12 @@ import torch
 # Configuration Setup
 # =============================================================================
 DATASET_PATH = "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data"
-CONFIG_PATH = os.path.join("CJ_scripts/configurations/hf_hub_download_uncertainty.json")
-config = get_default_config(CONFIG_PATH)
+DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "edl.json")
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
+parser.add_argument("--mode", default="train", choices=["train", "infer"])
+args, _ = parser.parse_known_args()
+config = load_mode_config(args.config, mode=args.mode)
 
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(DATASET_PATH, "dataset_metadata.csv")

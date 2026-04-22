@@ -3,6 +3,7 @@
 # ========================================
 import sys
 import os
+import argparse
 import json
 from glob import glob
 from pathlib import Path
@@ -12,19 +13,18 @@ from tqdm import tqdm
 # 設定 project root 和 sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
-sys.path.insert(0, os.path.join(project_root, 'CJ_scripts'))
 sys.path.insert(0, project_root)
 
 import torch
 import numpy as np
 
-from ml4floods.models.config_setup import get_default_config
+from flood_uncertainty.utils.config_loader import load_mode_config
 from ml4floods.models.model_setup import get_channel_configuration_bands
 from georeader.rasterio_reader import RasterioReader
 from georeader.geotensor import GeoTensor
 
 # 從 infer.py 匯入 inference 與輸出函數
-from infer import (
+from flood_uncertainty.inference.infer import (
     run_ensemble_inference,
     run_mcdropout_inference,
     save_ensemble_tif,
@@ -43,7 +43,8 @@ CONFIG = {
 
     # 資料與設定檔路徑
     "data_root":   "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
-    "config_path": "CJ_scripts/configurations/hf_hub_download_dropout_infer.json",
+    "config_path": os.path.join(project_root, "configurations", "dropout.json"),
+    "config_mode": "infer",
     "output_dir":  "result/val_test_inference",
 
     # 執行範圍
@@ -213,9 +214,17 @@ def process_inference_file(
 # 4. MAIN EXECUTION
 # ========================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["ensemble", "mcdropout"], default=CONFIG["mode"])
+    parser.add_argument("--config", default=CONFIG["config_path"])
+    parser.add_argument("--config_mode", choices=["train", "infer"], default=CONFIG["config_mode"])
+    args, _ = parser.parse_known_args()
+    CONFIG["mode"] = args.mode
+    CONFIG["config_path"] = args.config
+    CONFIG["config_mode"] = args.config_mode
 
     # 讀取 config（只讀一次）
-    config = get_default_config(CONFIG["config_path"])
+    config = load_mode_config(CONFIG["config_path"], mode=CONFIG["config_mode"])
     channels = get_channel_configuration_bands(
         config.data_params.channel_configuration, collection_name="S2"
     )

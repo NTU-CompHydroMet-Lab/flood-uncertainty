@@ -1,5 +1,6 @@
 import sys
 import os
+import argparse
 # 取得當前 notebook 的目錄
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 # 計算到專案根目錄的相對路徑
@@ -7,7 +8,7 @@ project_root = os.path.join(current_dir, '..')
 project_root = os.path.abspath(project_root)
 sys.path.insert(0, project_root)
 print(f"專案根目錄: {project_root}")
-from ml4floods.models.config_setup import get_default_config
+from flood_uncertainty.utils.config_loader import load_mode_config
 from ml4floods.models.dataset_setup import get_dataset
 from typing import Any, Dict
 import pandas as pd
@@ -22,8 +23,12 @@ import warnings
 warnings.filterwarnings("ignore")
 
 DATASET_PATH = "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data"
-CONFIG_PATH = os.path.join("CJ_scripts/configurations/hf_hub_download_dropout.json")
-config = get_default_config(CONFIG_PATH)
+DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "dropout.json")
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
+parser.add_argument("--mode", default="train", choices=["train", "infer"])
+args, _ = parser.parse_known_args()
+config = load_mode_config(args.config, mode=args.mode)
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(DATASET_PATH,"dataset_metadata.csv")
 # Point this to the root of the dataset on the mounted bucket

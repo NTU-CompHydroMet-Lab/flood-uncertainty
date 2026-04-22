@@ -12,7 +12,7 @@
 - `mlguess/`（目前 uncertainty loss 與部分訓練流程依賴）
 - `flood_uncertainty/` 核心方法（EDL、dropout、ensemble、metrics）
 - `scripts/` 的 train / infer / eval 入口
-- `configs/`（train、infer、eval）
+- `configs/`（每個方法一份，內含 train/infer mode；另含 eval config）
 - `docs/`（method summary、patch notes）
 
 `Must exclude`（第一版一定排除）：
@@ -178,18 +178,11 @@ repo/
     eval_metrics.py
 
   configs/
-    train/
-      v2.json
-      edl.json
-      dropout.json
-      ensemble.json
-    infer/
-      v2.json
-      edl.json
-      dropout.json
-      ensemble.json
-    eval/
-      metrics.json
+    v2.json
+    edl.json
+    dropout.json
+    ensemble.json
+    metrics_eval.json
 
   analysis/
     plot_case_confusion_compare.py
@@ -253,7 +246,8 @@ repo/
 
 原則：
 
-- 依用途分成 `train/`、`infer/`、`eval/`
+- 每個方法維持單一 config（例如 `edl.json`），檔內分 `shared`、`train`、`infer` 區段
+- `eval` 可獨立成 `metrics_eval.json`（或 `eval_metrics.json`），避免和 train/infer 混雜
 - 檔名應一致且可預測
 - 盡量不要再保留與本機綁死的絕對路徑
 
@@ -327,13 +321,13 @@ repo/
 
 | Current path | Suggested target | Priority | Status |
 | --- | --- | --- | --- |
-| `CJ_scripts/configurations/hf_hub_download.json` | `configs/train/v2.json` 或 `configs/infer/v2.json`，依實際用途拆分 | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_uncertainty.json` | `configs/train/edl.json` | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_dropout.json` | `configs/train/dropout.json` | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_ensemble.json` | `configs/train/ensemble.json` | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_uncertainty_infer.json` | `configs/infer/edl.json` | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_dropout_infer.json` | `configs/infer/dropout.json` | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_ensemble_infer.json` | `configs/infer/ensemble.json` | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download.json` | `configs/v2.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download_uncertainty.json` | `configs/edl.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download_dropout.json` | `configs/dropout.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download_ensemble.json` | `configs/ensemble.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download_uncertainty_infer.json` | `configs/edl.json`（併入 `infer` 區段） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download_dropout_infer.json` | `configs/dropout.json`（併入 `infer` 區段） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download_ensemble_infer.json` | `configs/ensemble.json`（併入 `infer` 區段） | `P0` | `todo` |
 
 ### 6.4 Analysis / Plotting
 
@@ -501,13 +495,13 @@ import flood_uncertainty
 目標：
 
 - 將 train / infer / eval scripts 收斂到 `scripts/`
-- 將 configs 重新命名並拆到 `configs/train`、`configs/infer`、`configs/eval`
+- 將 configs 重新命名為每方法單檔（內含 `shared/train/infer` 區段）並保留獨立 `eval` config
 - 移除硬編碼本機路徑
 
 完成判準（DoD）：
 
 - `scripts/` 入口可透過參數啟動，不含核心業務邏輯
-- `configs/` 已按 train/infer/eval 分類且命名一致
+- `configs/` 已改為每方法單檔，且 train/infer 共用同一檔配置
 - configs 與 scripts 內無硬編碼絕對路徑
 
 ### Phase 4: 文件化

@@ -1,4 +1,5 @@
 {
+  "shared": {
     "experiment_name": "WF2_unetv2_bgriswirs_test",
     "seed": 42,
     "model_params": {
@@ -38,10 +39,7 @@
         "lr_patience": 2,
         "early_stopping_patience": 50,
         "num_channels": 6
-      },
-      "train": true,
-      "val_only":true,
-      "test": false
+      }
     },
     "data_params": {
       "loader_type": "local",
@@ -79,4 +77,19 @@
     "gpus": 1,
     "wandb_entity": "ml4floods",
     "wandb_project": "wf_improvements"
+  },
+  "train": {
+    "model_params": {
+      "train": true,
+      "val_only": false,
+      "test": false
+    }
+  },
+  "infer": {
+    "model_params": {
+      "train": false,
+      "val_only": true,
+      "test": false
+    }
   }
+}

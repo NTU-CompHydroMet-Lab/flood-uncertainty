@@ -1,6 +1,7 @@
 # %%
 import sys
 import os
+import argparse
 # 取得當前 notebook 的目錄
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 # 計算到專案根目錄的相對路徑
@@ -21,11 +22,15 @@ print(f"專案根目錄: {project_root}")
 # config
 
 # Change accordingly!
-from ml4floods.models.config_setup import get_default_config
+from flood_uncertainty.utils.config_loader import load_mode_config
 DATASET_PATH = "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data"
 
-CONFIG_PATH = os.path.join("CJ_scripts/configurations/hf_hub_download.json")
-config = get_default_config(CONFIG_PATH)
+DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "v2.json")
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
+parser.add_argument("--mode", default="train", choices=["train", "infer"])
+args, _ = parser.parse_known_args()
+config = load_mode_config(args.config, mode=args.mode)
 
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(DATASET_PATH,"dataset_metadata.csv")
@@ -69,7 +74,6 @@ seed_everything(config.seed)
 # ## Step 2: Load the data with the `Dataset` on `ml4floods`
 
 # %%
-from ml4floods.models.config_setup import get_default_config
 from ml4floods.models.dataset_setup import get_dataset
 from typing import Any, Dict
 import pandas as pd
@@ -290,6 +294,5 @@ trainer = Trainer(
 trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
 
 # %%
-
 
 
