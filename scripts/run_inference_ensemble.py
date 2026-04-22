@@ -44,7 +44,7 @@ CONFIG = {
     # 資料與設定檔路徑
     "config_path": os.path.join(project_root, "configurations", "dropout.json"),
     "config_mode": "infer",
-    "output_dir":  "result/val_test_inference",
+    "output_dir": os.path.join(project_root, "artifacts", "results", "val_test_inference"),
 
     # 執行範圍
     "subsets": ["val", "test"],   # 要處理哪些 split

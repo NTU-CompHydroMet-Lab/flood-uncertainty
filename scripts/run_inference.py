@@ -32,7 +32,7 @@ from georeader.geotensor import GeoTensor
 CONFIG = {
     "model_type": "v2",           # "EDL" 或 "v2"
     "input_type": "S2",            # "S2" 或 "L8"
-    "output_dir": "result/val_test_inference",
+    "output_dir": os.path.join(project_root, "artifacts", "results", "val_test_inference"),
     "subsets": ["val", "test"],    # 要處理的資料集
     "save_plot": True,            # 是否存視覺化圖片
     "save_pred_tif": True,        # 是否存預測結果

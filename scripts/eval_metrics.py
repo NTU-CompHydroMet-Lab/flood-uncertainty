@@ -23,7 +23,7 @@ from flood_uncertainty.utils.config_loader import load_mode_config
 # ========================================
 CONFIG = {
     "model_type": "mcdropout", # "v2" "EDL" "ensemble" "mcdropout"
-    "output_dir": "result/val_test_inference",
+    "output_dir": os.path.join(project_root, "artifacts", "results", "val_test_inference"),
     "subset": "test",  # "val" "test"
     "config_mode": "infer",
     "plot_png": True,   # 是否產生 PNG 圖片
