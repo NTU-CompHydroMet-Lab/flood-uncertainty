@@ -36,6 +36,7 @@ CONFIG = {
     "subsets": ["val", "test"],    # 要處理的資料集
     "save_plot": True,            # 是否存視覺化圖片
     "save_pred_tif": True,        # 是否存預測結果
+    "max_files": None,            # smoke 用：每個 subset 最多跑幾筆
     "th_water": 0.5,               # 水體閾值
     "max_tile_size": 1024,
     "config_path_EDL": os.path.join(project_root, "configurations", "edl.json"),
@@ -140,10 +141,26 @@ if __name__ == "__main__":
     parser.add_argument("--config_edl", default=CONFIG["config_path_EDL"])
     parser.add_argument("--config_v2", default=CONFIG["config_path_v2"])
     parser.add_argument("--data_root", default=None)
+    parser.add_argument("--output_dir", default=CONFIG["output_dir"])
+    parser.add_argument("--subsets", default=",".join(CONFIG["subsets"]))
+    parser.add_argument("--max_files", type=int, default=CONFIG["max_files"])
+    parser.add_argument("--save_plot", action="store_true", default=CONFIG["save_plot"])
+    parser.add_argument("--no_save_plot", action="store_false", dest="save_plot")
+    parser.add_argument("--save_pred_tif", action="store_true", default=CONFIG["save_pred_tif"])
+    parser.add_argument("--no_save_pred_tif", action="store_false", dest="save_pred_tif")
     args, _ = parser.parse_known_args()
     CONFIG["model_type"] = args.model_type
     CONFIG["config_path_EDL"] = args.config_edl
     CONFIG["config_path_v2"] = args.config_v2
+    CONFIG["output_dir"] = args.output_dir
+    CONFIG["save_plot"] = args.save_plot
+    CONFIG["save_pred_tif"] = args.save_pred_tif
+    CONFIG["max_files"] = args.max_files
+
+    parsed_subsets = [subset.strip() for subset in args.subsets.split(",") if subset.strip()]
+    if not parsed_subsets:
+        raise ValueError("`--subsets` must include at least one subset, e.g. val or val,test")
+    CONFIG["subsets"] = parsed_subsets
 
     # 解析配置
     model_type = CONFIG["model_type"]
@@ -206,6 +223,9 @@ if __name__ == "__main__":
 
         # 取得所有檔案
         file_list = get_all_files(data_root, subset, input_type)
+        if CONFIG["max_files"] is not None:
+            file_list = file_list[:CONFIG["max_files"]]
+            print(f"Limited to first {len(file_list)} files (max_files={CONFIG['max_files']})")
         print(f"Found {len(file_list)} files in {subset}")
         
         # 4.3 遍歷每個檔案並處理

@@ -26,6 +26,7 @@ CONFIG = {
     "output_dir": os.path.join(project_root, "artifacts", "results", "val_test_inference"),
     "subset": "test",  # "val" "test"
     "config_mode": "infer",
+    "max_files": None,  # smoke 用：最多評估幾筆
     "plot_png": True,   # 是否產生 PNG 圖片
     "save_tif": True,   # 是否儲存 GeoTIFF
 }
@@ -48,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", default=None)
     parser.add_argument("--output_dir", default=CONFIG["output_dir"])
     parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"])
+    parser.add_argument("--max_files", type=int, default=CONFIG["max_files"])
     parser.add_argument("--plot_png", action="store_true", default=CONFIG["plot_png"])
     parser.add_argument("--no_plot_png", action="store_false", dest="plot_png")
     parser.add_argument("--save_tif", action="store_true", default=CONFIG["save_tif"])
@@ -78,6 +80,9 @@ if __name__ == "__main__":
 
     # 取得所有 GT 檔案
     gt_files = sorted(glob(f"{gt_dir}/*.tif"))
+    if args.max_files is not None:
+        gt_files = gt_files[:args.max_files]
+        print(f"Limited to first {len(gt_files)} files (max_files={args.max_files})")
     print(f"Found {len(gt_files)} GT files")
 
     for gt_path in tqdm(gt_files, desc=f"{subset}"):

@@ -12,7 +12,7 @@
 - `mlguess/`（目前 uncertainty loss 與部分訓練流程依賴）
 - `flood_uncertainty/` 核心方法（EDL、dropout、ensemble、metrics）
 - `scripts/` 的 train / infer / eval 入口
-- `configs/`（每個方法一份，內含 train/infer mode；另含 eval config）
+- `configurations/`（每個方法一份，內含 `shared/train/infer/validate_only` mode 區段）
 - `docs/`（method summary、patch notes）
 
 `Must exclude`（第一版一定排除）：
@@ -38,6 +38,13 @@
   1. 新增與搬移後的 library code 一律放到 `flood_uncertainty/metrics/`。
   2. 若舊入口仍引用 `matrics`，先保留相容層（薄轉發），再逐步替換 import。
   3. 完成條件：repo 內不再新增 `matrics*` 命名，既有引用全部轉到 `metrics*`。
+
+### A.3 近期進度（2026-04-23）
+
+- `done`：`configurations/{v2,edl,dropout,ensemble}.json` 已整併為單檔多 mode（`shared/train/infer/validate_only`）。
+- `done`：`scripts/` 入口已從硬編碼路徑改為「config 為主 + CLI 可覆寫」。
+- `done`：推論與評估預設輸出改到 `artifacts/results/`，避免寫入受 Git 管控區域。
+- `done`：已完成 v2/EDL infer smoke、EDL validate_only smoke、以及小規模 infer->eval e2e 驗證。
 
 ## 1. 文件目的
 
@@ -177,12 +184,11 @@ repo/
     run_uncertainty_inference.py
     eval_metrics.py
 
-  configs/
+  configurations/
     v2.json
     edl.json
     dropout.json
     ensemble.json
-    metrics_eval.json
 
   analysis/
     plot_case_confusion_compare.py
@@ -238,7 +244,7 @@ repo/
 - 不要在這裡堆積大量核心邏輯
 - 盡量保持薄
 
-### 5.4 `configs/`
+### 5.4 `configurations/`
 
 用途：
 
@@ -246,7 +252,7 @@ repo/
 
 原則：
 
-- 每個方法維持單一 config（例如 `edl.json`），檔內分 `shared`、`train`、`infer` 區段
+- 每個方法維持單一 config（例如 `edl.json`），檔內分 `shared`、`train`、`infer`、`validate_only` 區段
 - `eval` 可獨立成 `metrics_eval.json`（或 `eval_metrics.json`），避免和 train/infer 混雜
 - 檔名應一致且可預測
 - 盡量不要再保留與本機綁死的絕對路徑
@@ -295,39 +301,39 @@ repo/
 欄位說明：
 
 - `Priority`: `P0`（第一批必要）/ `P1`（第二批）/ `P2`（可延後）
-- `Status`: `todo` / `in_progress` / `done`
+- `Status`: `todo` / `in_progress` / `done` / `defer`
 
 ### 6.1 核心方法與模型
 
 | Current path | Suggested target | Notes | Priority | Status |
 | --- | --- | --- | --- | --- |
-| `CJ_scripts/model.py` | `flood_uncertainty/models/` | 需依內容拆成 `deterministic.py`、`edl.py`、`dropout.py`、`ensemble.py` | `P0` | `todo` |
-| `CJ_scripts/losses_uncertainty.py` | `flood_uncertainty/losses/edl_loss.py` | 保留 EDL loss 主體 | `P0` | `todo` |
-| `CJ_scripts/matrics.py` | `flood_uncertainty/metrics/segmentation.py` | 依命名規範轉為 `metrics` | `P0` | `todo` |
-| `CJ_scripts/calculate_matrics.py` | `scripts/eval_metrics.py` 或 `flood_uncertainty/metrics/retention.py` + `scripts/eval_metrics.py` | 視內容拆成 library code + CLI script | `P0` | `todo` |
+| `CJ_scripts/model.py` | `flood_uncertainty/models/` | `defer`：目前僅 EDL 走自訂模型；v2/dropout/ensemble 仍使用 `ml4floods` 的 `get_model` | `P0` | `defer` |
+| `CJ_scripts/losses_uncertainty.py` | `flood_uncertainty/losses/edl_loss.py` | 保留 EDL loss 主體 | `P0` | `done` |
+| `CJ_scripts/matrics.py` | `flood_uncertainty/metrics/segmentation.py` | 依命名規範轉為 `metrics` | `P0` | `done` |
+| `CJ_scripts/calculate_matrics.py` | `scripts/eval_metrics.py` 或 `flood_uncertainty/metrics/retention.py` + `scripts/eval_metrics.py` | 視內容拆成 library code + CLI script | `P0` | `done` |
 
 ### 6.2 訓練與推論入口
 
 | Current path | Suggested target | Notes | Priority | Status |
 | --- | --- | --- | --- | --- |
-| `CJ_scripts/train_v2_model.py` | `scripts/train_v2.py` | 入口 script | `P0` | `todo` |
-| `CJ_scripts/train_v2_model_uncertainty.py` | `scripts/train_edl.py` | 入口 script | `P0` | `todo` |
-| `CJ_scripts/train_v2_model_dropout.py` | `scripts/train_dropout.py` | 入口 script | `P0` | `todo` |
-| `CJ_scripts/train_v2_model_ensemble.py` | `scripts/train_ensemble.py` | 入口 script | `P0` | `todo` |
-| `CJ_scripts/run_inference.py` | `scripts/run_inference.py` | 一般 deterministic / EDL 推論入口 | `P0` | `todo` |
-| `CJ_scripts/run_inference_ensemble.py` | `scripts/run_uncertainty_inference.py` | 處理 ensemble / MC dropout 的入口 | `P0` | `todo` |
+| `CJ_scripts/train_v2_model.py` | `scripts/train_v2.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/train_v2_model_uncertainty.py` | `scripts/train_edl.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/train_v2_model_dropout.py` | `scripts/train_dropout.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/train_v2_model_ensemble.py` | `scripts/train_ensemble.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/run_inference.py` | `scripts/run_inference.py` | 一般 deterministic / EDL 推論入口 | `P0` | `done` |
+| `CJ_scripts/run_inference_ensemble.py` | `scripts/run_inference_ensemble.py` | 處理 ensemble / MC dropout 的入口 | `P0` | `done` |
 
 ### 6.3 Configs
 
 | Current path | Suggested target | Priority | Status |
 | --- | --- | --- | --- |
-| `CJ_scripts/configurations/hf_hub_download.json` | `configs/v2.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_uncertainty.json` | `configs/edl.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_dropout.json` | `configs/dropout.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_ensemble.json` | `configs/ensemble.json`（整併為單檔，含 `shared/train/infer`） | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_uncertainty_infer.json` | `configs/edl.json`（併入 `infer` 區段） | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_dropout_infer.json` | `configs/dropout.json`（併入 `infer` 區段） | `P0` | `todo` |
-| `CJ_scripts/configurations/hf_hub_download_ensemble_infer.json` | `configs/ensemble.json`（併入 `infer` 區段） | `P0` | `todo` |
+| `CJ_scripts/configurations/hf_hub_download.json` | `configurations/v2.json`（整併為單檔，含 `shared/train/infer/validate_only`） | `P0` | `done` |
+| `CJ_scripts/configurations/hf_hub_download_uncertainty.json` | `configurations/edl.json`（整併為單檔，含 `shared/train/infer/validate_only`） | `P0` | `done` |
+| `CJ_scripts/configurations/hf_hub_download_dropout.json` | `configurations/dropout.json`（整併為單檔，含 `shared/train/infer/validate_only`） | `P0` | `done` |
+| `CJ_scripts/configurations/hf_hub_download_ensemble.json` | `configurations/ensemble.json`（整併為單檔，含 `shared/train/infer/validate_only`） | `P0` | `done` |
+| `CJ_scripts/configurations/hf_hub_download_uncertainty_infer.json` | `configurations/edl.json`（併入 `infer` 區段） | `P0` | `done` |
+| `CJ_scripts/configurations/hf_hub_download_dropout_infer.json` | `configurations/dropout.json`（併入 `infer` 區段） | `P0` | `done` |
+| `CJ_scripts/configurations/hf_hub_download_ensemble_infer.json` | `configurations/ensemble.json`（併入 `infer` 區段） | `P0` | `done` |
 
 ### 6.4 Analysis / Plotting
 
@@ -495,14 +501,14 @@ import flood_uncertainty
 目標：
 
 - 將 train / infer / eval scripts 收斂到 `scripts/`
-- 將 configs 重新命名為每方法單檔（內含 `shared/train/infer` 區段）並保留獨立 `eval` config
+- 將 configurations 重新命名為每方法單檔（內含 `shared/train/infer/validate_only` 區段）並保留獨立 `eval` config
 - 移除硬編碼本機路徑
 
 完成判準（DoD）：
 
 - `scripts/` 入口可透過參數啟動，不含核心業務邏輯
-- `configs/` 已改為每方法單檔，且 train/infer 共用同一檔配置
-- configs 與 scripts 內無硬編碼絕對路徑
+- `configurations/` 已改為每方法單檔，且 train/infer 共用同一檔配置
+- scripts 內無硬編碼資料根目錄；路徑由 config 為主，並可用 CLI 覆寫
 
 ### Phase 4: 文件化
 
@@ -538,7 +544,7 @@ import flood_uncertainty
 後續整理前，仍有幾個問題需要逐步確認：
 
 1. `ml4floods/` 中實際改動過哪些檔案
-2. `CJ_scripts/model.py` 應如何拆分成多個模組
+2. `CJ_scripts/model.py` 先保留不拆（目前僅 EDL 使用自訂模型，其他沿用 `ml4floods`）
 3. `matrics.py` 與 `calculate_matrics.py` 的邏輯邊界
 4. `KuroSiwo/` 是否屬於公開主題的一部分
 5. `SAR` 相關內容是否應納入第一版公開 repo
