@@ -32,7 +32,6 @@ from georeader.geotensor import GeoTensor
 CONFIG = {
     "model_type": "v2",           # "EDL" 或 "v2"
     "input_type": "S2",            # "S2" 或 "L8"
-    "data_root": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
     "output_dir": "result/val_test_inference",
     "subsets": ["val", "test"],    # 要處理的資料集
     "save_plot": True,            # 是否存視覺化圖片
@@ -140,6 +139,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", choices=["EDL", "v2"], default=CONFIG["model_type"])
     parser.add_argument("--config_edl", default=CONFIG["config_path_EDL"])
     parser.add_argument("--config_v2", default=CONFIG["config_path_v2"])
+    parser.add_argument("--data_root", default=None)
     args, _ = parser.parse_known_args()
     CONFIG["model_type"] = args.model_type
     CONFIG["config_path_EDL"] = args.config_edl
@@ -148,7 +148,6 @@ if __name__ == "__main__":
     # 解析配置
     model_type = CONFIG["model_type"]
     input_type = CONFIG["input_type"]
-    data_root = CONFIG["data_root"]
     output_dir = CONFIG["output_dir"]
     subsets = CONFIG["subsets"]
     save_plot = CONFIG["save_plot"]
@@ -171,6 +170,8 @@ if __name__ == "__main__":
         model_type=model_type,
         mode="infer",
     )
+    data_root = args.data_root or config.data_params.path_to_splits
+    CONFIG["data_root"] = data_root
     inference_function, config = load_inference_function(
         model, config,
         max_tile_size=CONFIG["max_tile_size"],

@@ -1,43 +1,75 @@
 # ========================================
 # 1. IMPORTS & SETUP
 # ========================================
+import argparse
 import os
+import sys
 from glob import glob
 from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
 from georeader.rasterio_reader import RasterioReader
 
+# 設定 project root 和 sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+project_root = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.insert(0, project_root)
+
 from flood_uncertainty.metrics.segmentation import plot_spatial_confusion_matrix
+from flood_uncertainty.utils.config_loader import load_mode_config
 
 # ========================================
 # 2. CONFIGURATION
 # ========================================
 CONFIG = {
     "model_type": "mcdropout", # "v2" "EDL" "ensemble" "mcdropout"
-    "data_root": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
     "output_dir": "result/val_test_inference",
     "subset": "test",  # "val" "test"
+    "config_mode": "infer",
     "plot_png": True,   # 是否產生 PNG 圖片
     "save_tif": True,   # 是否儲存 GeoTIFF
+}
+
+MODEL_CONFIG_PATHS = {
+    "v2": "configurations/v2.json",
+    "EDL": "configurations/edl.json",
+    "ensemble": "configurations/ensemble.json",
+    "mcdropout": "configurations/dropout.json",
 }
 
 # ========================================
 # 3. MAIN EXECUTION
 # ========================================
 if __name__ == "__main__":
-    model_type = CONFIG["model_type"]
-    data_root = CONFIG["data_root"]
-    output_dir = CONFIG["output_dir"]
-    subset = CONFIG["subset"]
-    plot_png = CONFIG["plot_png"]
-    save_tif = CONFIG["save_tif"]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_type", choices=["v2", "EDL", "ensemble", "mcdropout"], default=CONFIG["model_type"])
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--config_mode", choices=["infer"], default=CONFIG["config_mode"])
+    parser.add_argument("--data_root", default=None)
+    parser.add_argument("--output_dir", default=CONFIG["output_dir"])
+    parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"])
+    parser.add_argument("--plot_png", action="store_true", default=CONFIG["plot_png"])
+    parser.add_argument("--no_plot_png", action="store_false", dest="plot_png")
+    parser.add_argument("--save_tif", action="store_true", default=CONFIG["save_tif"])
+    parser.add_argument("--no_save_tif", action="store_false", dest="save_tif")
+    args, _ = parser.parse_known_args()
+
+    model_type = args.model_type
+    config_path = args.config or MODEL_CONFIG_PATHS[model_type]
+    mode_config = load_mode_config(config_path, mode=args.config_mode)
+    data_root = args.data_root or mode_config.data_params.path_to_splits
+    output_dir = args.output_dir
+    subset = args.subset
+    plot_png = args.plot_png
+    save_tif = args.save_tif
 
     all_results = []
     total_TP, total_TN, total_FP, total_FN = 0, 0, 0, 0
 
     print(f"\n{'='*50}")
     print(f"Processing subset: {subset}")
+    print(f"model_type={model_type}, config={config_path}")
+    print(f"data_root={data_root}")
 
     # GT, S2, Prediction 資料夾路徑
     gt_dir = f"{data_root}/{subset}/gt"
@@ -105,6 +137,9 @@ if __name__ == "__main__":
         total_TN += results['TN']
         total_FP += results['FP']
         total_FN += results['FN']
+
+    if not all_results:
+        raise RuntimeError(f"No valid samples found for subset={subset}, model_type={model_type}")
 
     # 計算整體指標
     print(f"\n{'='*50}")

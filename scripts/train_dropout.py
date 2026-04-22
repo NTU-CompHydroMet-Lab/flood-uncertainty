@@ -22,19 +22,20 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import warnings
 warnings.filterwarnings("ignore")
 
-DATASET_PATH = "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data"
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "dropout.json")
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
 parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
+parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode=args.mode)
 if args.mode == "validate_only":
     raise NotImplementedError("validate_only is currently supported in scripts/train_edl.py")
+data_root = args.data_root or config.data_params.path_to_splits
 # Set this to the path of the metadata CSV from huggingface
-CSV_PATH = os.path.join(DATASET_PATH,"dataset_metadata.csv")
+CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
 # Point this to the root of the dataset on the mounted bucket
-JSON_PATH = os.path.join(DATASET_PATH, "train_test_split_from_csv.json")
+JSON_PATH = os.path.join(data_root, "train_test_split_from_csv.json")
 # Seed
 seed_everything(config.seed)
 
@@ -48,7 +49,7 @@ def convert_metadata_csv_to_json() -> None:
         files = csv[csv.split == split]["event id"]
         for mod in modalities:
             out[split][mod] = [
-                os.path.join(DATASET_PATH, split, mod, f"{fn}.tif")
+                os.path.join(data_root, split, mod, f"{fn}.tif")
                 for fn in files.to_list()
             ]
 
@@ -59,7 +60,7 @@ convert_metadata_csv_to_json()
 # set data params
 config.data_params.loader_type = "local"
 config.data_params.bucket_id = None
-config.data_params.path_to_splits = DATASET_PATH
+config.data_params.path_to_splits = data_root
 config.data_params["download"] = {
     "train": False,
     "val": False,

@@ -42,7 +42,6 @@ CONFIG = {
     "n_samples": 10,
 
     # 資料與設定檔路徑
-    "data_root":   "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
     "config_path": os.path.join(project_root, "configurations", "dropout.json"),
     "config_mode": "infer",
     "output_dir":  "result/val_test_inference",
@@ -218,6 +217,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["ensemble", "mcdropout"], default=CONFIG["mode"])
     parser.add_argument("--config", default=CONFIG["config_path"])
     parser.add_argument("--config_mode", choices=["infer"], default=CONFIG["config_mode"])
+    parser.add_argument("--data_root", default=None)
     args, _ = parser.parse_known_args()
     CONFIG["mode"] = args.mode
     CONFIG["config_path"] = args.config
@@ -225,6 +225,8 @@ if __name__ == "__main__":
 
     # 讀取 config（只讀一次）
     config = load_mode_config(CONFIG["config_path"], mode=CONFIG["config_mode"])
+    data_root = args.data_root or config.data_params.path_to_splits
+    CONFIG["data_root"] = data_root
     channels = get_channel_configuration_bands(
         config.data_params.channel_configuration, collection_name="S2"
     )
@@ -269,7 +271,7 @@ if __name__ == "__main__":
         print(f"Config saved to: {config_save_path}")
 
         # 取得所有檔案
-        file_list = get_all_files(CONFIG["data_root"], subset)
+        file_list = get_all_files(data_root, subset)
         print(f"Found {len(file_list)} files to process in [{subset}]")
 
         # 遍歷每個檔案
