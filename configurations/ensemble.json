@@ -4,18 +4,18 @@
     "seed": 42,
     "model_params": {
       "ensemble_dirs": [
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_0/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_1/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_2/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_3/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_4/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_5/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_6/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_7/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_8/checkpoint",
-        "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_9/checkpoint"
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_0/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_1/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_2/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_3/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_4/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_5/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_6/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_7/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_8/checkpoint",
+        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_9/checkpoint"
       ],
-      "model_folder": "models",
+      "model_folder": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models",
       "model_version": "v2",
       "hyperparameters": {
         "max_tile_size": 512,
@@ -66,8 +66,8 @@
         "test": false
       },
       "bucket_id": "",
-      "path_to_splits": "/media/disk/databases/WORLDFLOODS/2_Mart/worldfloods_extra_v2_0_DEF",
-      "train_test_split_file": "/home/kike/Projects/ml4floods/auxiliar_work/Experiments/splits/split_clean.json",
+      "path_to_splits": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
+      "train_test_split_file": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data/train_test_split_from_csv.json",
       "input_folder": "S2",
       "target_folder": "gt",
       "batch_size": 32,
@@ -85,7 +85,7 @@
       }
     },
     "resume_from_checkpoint": false,
-    "gpus": 1,
+    "gpus": 0,
     "wandb_entity": "ml4floods",
     "wandb_project": "wf_improvements_ensemble"
   },

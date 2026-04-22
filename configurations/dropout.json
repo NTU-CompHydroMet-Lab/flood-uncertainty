@@ -3,9 +3,9 @@
     "experiment_name": "WF2_unetv2_bgriswirs_dropout",
     "seed": 42,
     "model_params": {
-      "checkpoint_dir": "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/WF2_unetv2_bgriswirs_dropout/checkpoint",
+      "checkpoint_dir": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/WF2_unetv2_bgriswirs_dropout/checkpoint",
       "pretrained_path": null,
-      "model_folder": "models",
+      "model_folder": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models",
       "model_version": "v2",
       "hyperparameters": {
         "max_tile_size": 512,
@@ -56,8 +56,8 @@
         "test": false
       },
       "bucket_id": "",
-      "path_to_splits": "/media/disk/databases/WORLDFLOODS/2_Mart/worldfloods_extra_v2_0_DEF",
-      "train_test_split_file": "/home/kike/Projects/ml4floods/auxiliar_work/Experiments/splits/split_clean.json",
+      "path_to_splits": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
+      "train_test_split_file": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data/train_test_split_from_csv.json",
       "input_folder": "S2",
       "target_folder": "gt",
       "batch_size": 64,
@@ -75,7 +75,7 @@
       }
     },
     "resume_from_checkpoint": false,
-    "gpus": 1,
+    "gpus": 0,
     "wandb_entity": "ml4floods",
     "wandb_project": "wf_improvements_dropout"
   },

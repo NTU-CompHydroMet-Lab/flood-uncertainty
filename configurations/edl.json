@@ -3,8 +3,8 @@
     "experiment_name": "WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_val",
     "seed": 42,
     "model_params": {
-      "pretrained_path": "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/models/WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_saved/checkpoint/epoch=17-step=18450.ckpt",
-      "model_folder": "models",
+      "pretrained_path": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_saved/checkpoint/epoch=17-step=18450.ckpt",
+      "model_folder": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models",
       "model_version": "v2",
       "hyperparameters": {
         "max_tile_size": 256,
@@ -61,8 +61,8 @@
         "test": false
       },
       "bucket_id": "",
-      "path_to_splits": "/media/disk/databases/WORLDFLOODS/2_Mart/worldfloods_extra_v2_0_DEF",
-      "train_test_split_file": "/home/kike/Projects/ml4floods/auxiliar_work/Experiments/splits/split_clean.json",
+      "path_to_splits": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
+      "train_test_split_file": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data/train_test_split_from_csv.json",
       "input_folder": "S2",
       "target_folder": "gt",
       "batch_size": 64,
@@ -80,7 +80,7 @@
       }
     },
     "resume_from_checkpoint": false,
-    "gpus": 1,
+    "gpus": 0,
     "wandb_entity": "ml4floods",
     "wandb_project": "ML4FloodsUncertainty_saveZarr"
   },
@@ -92,7 +92,7 @@
   },
   "validate_only": {
     "model_params": {
-      "zarr_save_path": "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/val/val_results_WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_saved_temp.zarr"
+      "zarr_save_path": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/zarr/val_results_WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_saved_temp.zarr"
     }
   }
 }
