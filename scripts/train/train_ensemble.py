@@ -4,7 +4,7 @@ import argparse
 # 取得當前 notebook 的目錄
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 # 計算到專案根目錄的相對路徑
-project_root = os.path.join(current_dir, '..')
+project_root = os.path.join(current_dir, '..', '..')
 project_root = os.path.abspath(project_root)
 sys.path.insert(0, project_root)
 print(f"專案根目錄: {project_root}")
@@ -31,7 +31,7 @@ parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode=args.mode)
 if args.mode == "validate_only":
-    raise NotImplementedError("validate_only is currently supported in scripts/train_edl.py")
+    raise NotImplementedError("validate_only is currently supported in scripts/train/train_edl.py")
 data_root = args.data_root or config.data_params.path_to_splits
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")

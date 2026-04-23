@@ -12,7 +12,7 @@ from georeader.rasterio_reader import RasterioReader
 
 # 設定 project root 和 sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
-project_root = os.path.abspath(os.path.join(current_dir, ".."))
+project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
 sys.path.insert(0, project_root)
 
 from flood_uncertainty.metrics.segmentation import plot_spatial_confusion_matrix

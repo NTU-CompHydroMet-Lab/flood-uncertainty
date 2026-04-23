@@ -45,6 +45,14 @@
 - `done`：`scripts/` 入口已從硬編碼路徑改為「config 為主 + CLI 可覆寫」。
 - `done`：推論與評估預設輸出改到 `artifacts/results/`，避免寫入受 Git 管控區域。
 - `done`：已完成 v2/EDL infer smoke、EDL validate_only smoke、以及小規模 infer->eval e2e 驗證。
+- `done`：新增 `scripts/smoke/smoke_infer_eval.sh` 一鍵 smoke（v2/EDL infer + eval）並已驗證可執行。
+- `done`：新增 `scripts/smoke/smoke_train.sh`，會建立最小 smoke dataset、生成臨時 config，並驗證 train 入口至少可完整跑完 1 epoch。
+- `done`：新增 `scripts/smoke/smoke_analysis.sh`，會準備最小 prediction artifacts（EDL）並驗證 retention / PAvPU analysis 流程。
+- `done`：新增 `scripts/smoke/smoke_all.sh`，可串跑 infer/eval、train、analysis；已實測整包 smoke flow 可通過。
+- `done`：`scripts/smoke/` 已補非 EDL analysis 的保護邏輯，避免 `ensemble` / `mcdropout` 被 `PREPARE_INFER=1` 的預設值誤傷。
+- `done`：`scripts/smoke/smoke_all.sh` 已修正 elapsed time 顯示 bug，完成時間會正確顯示秒數。
+- `done`：analysis 相關腳本已收斂到 `scripts/analysis/`，輸出路徑統一到 `artifacts/results/*`，並補齊多數 CLI 參數（含 `--max-files`）。
+- `done`：`plot_epistemic_fp_fn_compare.py` 已完成最小驗證並成功產圖。
 
 ## 1. 文件目的
 
@@ -169,31 +177,44 @@ repo/
       pavpu.py
     inference/
       __init__.py
-      predictor.py
+      infer.py
     utils/
       __init__.py
       io.py
       paths.py
 
   scripts/
-    train_v2.py
-    train_edl_uncertainty.py
-    train_dropout_uncertainty.py
-    train_ensemble_uncertainty.py
-    run_inference.py
-    run_uncertainty_inference.py
-    eval_metrics.py
+    train/
+      train_v2.py
+      train_edl.py
+      train_dropout.py
+      train_ensemble.py
+    inference/
+      run_inference.py
+      run_inference_ensemble.py
+    eval/
+      eval_metrics.py
+    analysis/
+      analysis_S2.py
+      case_compare_shared.py
+      compute_pavpu.py
+      export_case_compare_tiles.py
+      plot_epistemic_fp_fn_compare.py
+      plot_worldfloods_event_map.py
+      plot_case_confusion_compare.py
+      plot_case_uncertainty_compare.py
+      plot_retention_curve_compare.py
+    smoke/
+      smoke_infer_eval.sh
+      smoke_train.sh
+      smoke_analysis.sh
+      smoke_all.sh
 
   configurations/
     v2.json
     edl.json
     dropout.json
     ensemble.json
-
-  analysis/
-    plot_case_confusion_compare.py
-    plot_case_uncertainty_compare.py
-    plot_retention_curve_compare.py
 
   docs/
     method_summary.md
@@ -262,6 +283,7 @@ repo/
 用途：
 
 - 放研究分析與視覺化腳本
+- 目前實作位置以 `scripts/analysis/` 為主；若未來再拆 library code，才考慮把純研究腳本和可重用邏輯分開
 
 原則：
 
@@ -316,12 +338,16 @@ repo/
 
 | Current path | Suggested target | Notes | Priority | Status |
 | --- | --- | --- | --- | --- |
-| `CJ_scripts/train_v2_model.py` | `scripts/train_v2.py` | 入口 script | `P0` | `done` |
-| `CJ_scripts/train_v2_model_uncertainty.py` | `scripts/train_edl.py` | 入口 script | `P0` | `done` |
-| `CJ_scripts/train_v2_model_dropout.py` | `scripts/train_dropout.py` | 入口 script | `P0` | `done` |
-| `CJ_scripts/train_v2_model_ensemble.py` | `scripts/train_ensemble.py` | 入口 script | `P0` | `done` |
-| `CJ_scripts/run_inference.py` | `scripts/run_inference.py` | 一般 deterministic / EDL 推論入口 | `P0` | `done` |
-| `CJ_scripts/run_inference_ensemble.py` | `scripts/run_inference_ensemble.py` | 處理 ensemble / MC dropout 的入口 | `P0` | `done` |
+| `CJ_scripts/train_v2_model.py` | `scripts/train/train_v2.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/train_v2_model_uncertainty.py` | `scripts/train/train_edl.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/train_v2_model_dropout.py` | `scripts/train/train_dropout.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/train_v2_model_ensemble.py` | `scripts/train/train_ensemble.py` | 入口 script | `P0` | `done` |
+| `CJ_scripts/run_inference.py` | `scripts/inference/run_inference.py` | 一般 deterministic / EDL 推論入口 | `P0` | `done` |
+| `CJ_scripts/run_inference_ensemble.py` | `scripts/inference/run_inference_ensemble.py` | 處理 ensemble / MC dropout 的入口 | `P0` | `done` |
+| `n/a` | `scripts/smoke/smoke_infer_eval.sh` | infer + eval 最小 smoke 入口 | `P0` | `done` |
+| `n/a` | `scripts/smoke/smoke_train.sh` | train 最小 smoke 入口 | `P0` | `done` |
+| `n/a` | `scripts/smoke/smoke_analysis.sh` | analysis 最小 smoke 入口 | `P0` | `done` |
+| `n/a` | `scripts/smoke/smoke_all.sh` | 串跑 infer/eval + train + analysis 的 smoke 總入口 | `P0` | `done` |
 
 ### 6.3 Configs
 
@@ -339,15 +365,15 @@ repo/
 
 | Current path | Suggested target | Priority | Status |
 | --- | --- | --- | --- |
-| `CJ_scripts/plot/plot_case_confusion_compare.py` | `analysis/plot_case_confusion_compare.py` | `P1` | `todo` |
-| `CJ_scripts/plot/plot_case_uncertainty_compare.py` | `analysis/plot_case_uncertainty_compare.py` | `P1` | `todo` |
-| `CJ_scripts/plot/plot_retention_curve_compare.py` | `analysis/plot_retention_curve_compare.py` | `P1` | `todo` |
-| `CJ_scripts/plot/export_case_compare_tiles.py` | `analysis/export_case_compare_tiles.py` | `P1` | `todo` |
-| `CJ_scripts/plot/case_compare_shared.py` | `analysis/case_compare_shared.py` | `P1` | `todo` |
-| `CJ_scripts/EDA/compute_pavpu.py` | `analysis/compute_pavpu.py` 或拆一部分到 `flood_uncertainty/metrics/pavpu.py` | `P1` | `todo` |
-| `CJ_scripts/EDA/analysis.py` | `analysis/analysis.py` | `P2` | `todo` |
-| `CJ_scripts/EDA/analysis_S2.py` | `analysis/analysis_S2.py` | `P2` | `todo` |
-| `CJ_scripts/EDA/plot_epistemic_fp_fn_compare.py` | `analysis/plot_epistemic_fp_fn_compare.py` | `P2` | `todo` |
+| `CJ_scripts/plot/plot_case_confusion_compare.py` | `scripts/analysis/plot_case_confusion_compare.py` | `P1` | `done` |
+| `CJ_scripts/plot/plot_case_uncertainty_compare.py` | `scripts/analysis/plot_case_uncertainty_compare.py` | `P1` | `done` |
+| `CJ_scripts/plot/plot_retention_curve_compare.py` | `scripts/analysis/plot_retention_curve_compare.py` | `P1` | `done` |
+| `CJ_scripts/plot/export_case_compare_tiles.py` | `scripts/analysis/export_case_compare_tiles.py` | `P1` | `done` |
+| `CJ_scripts/plot/case_compare_shared.py` | `scripts/analysis/case_compare_shared.py` | `P1` | `done` |
+| `CJ_scripts/EDA/compute_pavpu.py` | `scripts/analysis/compute_pavpu.py` 或拆一部分到 `flood_uncertainty/metrics/pavpu.py` | `P1` | `done` |
+| `CJ_scripts/EDA/analysis.py` | `scripts/analysis/analysis.py` | `P2` | `defer` |
+| `CJ_scripts/EDA/analysis_S2.py` | `scripts/analysis/analysis_S2.py` | `P2` | `done` |
+| `CJ_scripts/EDA/plot_epistemic_fp_fn_compare.py` | `scripts/analysis/plot_epistemic_fp_fn_compare.py` | `P2` | `done` |
 
 ### 6.5 文件
 
@@ -501,7 +527,7 @@ import flood_uncertainty
 目標：
 
 - 將 train / infer / eval scripts 收斂到 `scripts/`
-- 將 configurations 重新命名為每方法單檔（內含 `shared/train/infer/validate_only` 區段）並保留獨立 `eval` config
+- 將 configurations 重新命名為每方法單檔（內含 `shared/train/infer/validate_only` 區段）
 - 移除硬編碼本機路徑
 
 完成判準（DoD）：

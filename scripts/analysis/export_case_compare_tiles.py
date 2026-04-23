@@ -82,6 +82,11 @@ def parse_args():
         help=f"Output root for tiled figures. Default: {DEFAULT_OUTPUT_ROOT}",
     )
     parser.add_argument(
+        "--analysis-root",
+        default=str(DEFAULT_ANALYSIS_ROOT),
+        help=f"Analysis root used to load retention CSV thresholds. Default: {DEFAULT_ANALYSIS_ROOT}",
+    )
+    parser.add_argument(
         "--kind",
         choices=["confusion", "uncertainty", "both"],
         default="both",
@@ -463,7 +468,7 @@ def main():
     pavpu_thresholds = None
 
     if args.kind in {"uncertainty", "both"} and args.show_pavpu:
-        pavpu_thresholds = load_pavpu_thresholds(DEFAULT_ANALYSIS_ROOT, args.retention_target)
+        pavpu_thresholds = load_pavpu_thresholds(Path(args.analysis_root), args.retention_target)
 
     for event_id in event_ids:
         if args.kind in {"confusion", "both"}:

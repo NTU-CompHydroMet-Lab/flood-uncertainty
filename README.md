@@ -12,10 +12,11 @@ Flood segmentation uncertainty 專案（`v2` / `EDL` / `ensemble` / `MC dropout`
 
 ## 2. 環境
 
-目前流程以既有 conda 環境執行（例如 `ml4floods`）：
+目前流程以 `uv` 環境執行：
 
 ```bash
-conda activate ml4floods
+uv sync --python 3.10
+uv run python -V
 ```
 
 ## 3. Config mode
@@ -31,60 +32,94 @@ conda activate ml4floods
 ### 4.1 訓練
 
 ```bash
-python scripts/train_v2.py --config configurations/v2.json --mode train
-python scripts/train_edl.py --config configurations/edl.json --mode train
-python scripts/train_dropout.py --config configurations/dropout.json --mode train
-python scripts/train_ensemble.py --config configurations/ensemble.json --mode train
+uv run python scripts/train/train_v2.py --config configurations/v2.json --mode train
+uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train
+uv run python scripts/train/train_dropout.py --config configurations/dropout.json --mode train
+uv run python scripts/train/train_ensemble.py --config configurations/ensemble.json --mode train
 ```
 
 可選覆寫資料根目錄：
 
 ```bash
-python scripts/train_edl.py --config configurations/edl.json --mode train --data_root /path/to/worldfloods_v2/data
+uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train --data_root /path/to/worldfloods_v2/data
 ```
 
 ### 4.2 只驗證（EDL）
 
 ```bash
-python scripts/train_edl.py --config configurations/edl.json --mode validate_only
+uv run python scripts/train/train_edl.py --config configurations/edl.json --mode validate_only
 ```
 
 ### 4.3 推論
 
 ```bash
-python scripts/run_inference.py --model_type v2 --config_v2 configurations/v2.json
-python scripts/run_inference.py --model_type EDL --config_edl configurations/edl.json
-python scripts/run_inference_ensemble.py --mode ensemble --config configurations/ensemble.json
-python scripts/run_inference_ensemble.py --mode mcdropout --config configurations/dropout.json
+uv run python scripts/inference/run_inference.py --model_type v2 --config_v2 configurations/v2.json
+uv run python scripts/inference/run_inference.py --model_type EDL --config_edl configurations/edl.json
+uv run python scripts/inference/run_inference_ensemble.py --mode ensemble --config configurations/ensemble.json
+uv run python scripts/inference/run_inference_ensemble.py --mode mcdropout --config configurations/dropout.json
 ```
 
 ### 4.4 評估
 
 ```bash
-python scripts/eval_metrics.py --model_type v2 --subset val
-python scripts/eval_metrics.py --model_type EDL --subset val
+uv run python scripts/eval/eval_metrics.py --model_type v2 --subset val
+uv run python scripts/eval/eval_metrics.py --model_type EDL --subset val
 ```
 
-## 5. 一鍵 Smoke（v2 infer + eval）
+## 5. Smoke Scripts
 
 ```bash
-bash scripts/smoke.sh
+bash scripts/smoke/smoke_infer_eval.sh
+bash scripts/smoke/smoke_train.sh
+bash scripts/smoke/smoke_analysis.sh
+bash scripts/smoke/smoke_all.sh
 ```
 
-可選環境變數（不帶就用預設）：
+常用覆寫參數（不帶就用預設）：
 
 ```bash
-SMOKE_SUBSET=val SMOKE_MAX_FILES=1 SMOKE_CONFIG=configurations/v2.json bash scripts/smoke.sh
+SMOKE_INFER_MODEL_TYPE=EDL SMOKE_INFER_SUBSET=val SMOKE_INFER_MAX_FILES=1 bash scripts/smoke/smoke_infer_eval.sh
+SMOKE_TRAIN_MODEL=v2 bash scripts/smoke/smoke_train.sh
+SMOKE_ANALYSIS_MODEL_TYPE=EDL SMOKE_ANALYSIS_PREPARE_INFER=1 SMOKE_ANALYSIS_MAX_FILES=1 bash scripts/smoke/smoke_analysis.sh
+SMOKE_ALL_RUN_TRAIN=0 bash scripts/smoke/smoke_all.sh
 ```
 
 ## 6. Analysis 指令
 
+### 6.1 單支執行
+
 ```bash
-python analysis/analysis_S2.py --model-type EDL --subset val --max-files 1
-python analysis/compute_pavpu.py --model-type EDL --subset val --max-files 1
-python analysis/plot_retention_curve_compare.py --group all
-python analysis/plot_epistemic_fp_fn_compare.py --subset val --max-files 1
+uv run python scripts/analysis/analysis_S2.py --model-type EDL --subset val --max-files 1
+uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset val --max-files 1
+uv run python scripts/analysis/plot_retention_curve_compare.py --group all
+uv run python scripts/analysis/plot_epistemic_fp_fn_compare.py --subset val --max-files 1
 ```
+
+### 6.2 一鍵執行全部 analysis（含時間與步驟提示）
+
+先編輯：
+
+`scripts/analysis/analysis.env`
+
+再執行：
+
+```bash
+bash scripts/analysis/run_all_analysis.sh
+```
+
+可選：指定其他 env 檔
+
+```bash
+ANALYSIS_ENV_FILE=/path/to/analysis.env bash scripts/analysis/run_all_analysis.sh
+```
+
+此腳本執行順序為：
+
+`analysis_S2 (all models) -> compute_pavpu (all models) -> plot_retention_curve_compare -> plot_epistemic_fp_fn_compare`
+
+執行 log 會寫到：
+
+`artifacts/results/analysis_S2/logs/`
 
 ## 7. 路徑說明
 

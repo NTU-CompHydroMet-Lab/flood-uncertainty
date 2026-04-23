@@ -13,7 +13,7 @@ from path_defaults import DEFAULT_ANALYSIS_ROOT, DEFAULT_PRED_ROOT
 
 # Add parent directory to path to import matrics
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, '..'))
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
 sys.path.insert(0, project_root)
 
 from flood_uncertainty.metrics.segmentation import calculate_metrics_by_retention
