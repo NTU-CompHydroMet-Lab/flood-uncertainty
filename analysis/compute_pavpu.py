@@ -1,12 +1,13 @@
-
+import argparse
 import os
-import sys
 import numpy as np
 import pandas as pd
 import rasterio
 from glob import glob
 from pathlib import Path
 from tqdm import tqdm
+
+from path_defaults import DEFAULT_ANALYSIS_ROOT, DEFAULT_PRED_ROOT
 
 # ========================================
 # CONFIGURATION
@@ -81,11 +82,26 @@ SELECTED_CRITERIA = {
 CONFIG = {
     "model_type":      "EDL",   # ← 切換此處："EDL" "ensemble" 或 "mcdropout"
     "subset":          "test",
-    "pred_root":       "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/val_test_inference",
-    "base_output_dir": "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/analysis_S2",
+    "pred_root":       str(DEFAULT_PRED_ROOT),
+    "base_output_dir": str(DEFAULT_ANALYSIS_ROOT),
     "patch_size":      3,
     "retention_target": 0.9,
+    "max_files":       None,
 }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Compute PAvPU from confusion maps and prediction outputs."
+    )
+    parser.add_argument("--model-type", choices=["EDL", "ensemble", "mcdropout"], default=CONFIG["model_type"])
+    parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"])
+    parser.add_argument("--pred-root", default=CONFIG["pred_root"])
+    parser.add_argument("--analysis-root", default=CONFIG["base_output_dir"])
+    parser.add_argument("--patch-size", type=int, default=CONFIG["patch_size"])
+    parser.add_argument("--retention-target", type=float, default=CONFIG["retention_target"])
+    parser.add_argument("--max-files", type=int, default=CONFIG["max_files"])
+    return parser.parse_args()
 
 
 def get_thresholds(model_type, criteria_name, base_output_dir, retention_target):
@@ -183,6 +199,10 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
     target_dir = f"{pred_root}/{subset}/{model_type}"
 
     cm_files = sorted(glob(f"{target_dir}/cm_*.tif"))
+    max_files = config.get("max_files")
+    if max_files is not None:
+        cm_files = cm_files[:max_files]
+        print(f"Limited to first {len(cm_files)} files (max_files={max_files})")
     print(f"Found {len(cm_files)} CM files in {target_dir}")
 
     per_image_rows = []
@@ -280,10 +300,20 @@ def save_results(per_image_rows, totals, subset, output_path):
 
 
 def main():
-    model_type     = CONFIG["model_type"]
-    subset         = CONFIG["subset"]
-    base_output_dir = CONFIG["base_output_dir"]
-    retention_target = CONFIG["retention_target"]
+    args = parse_args()
+    config = dict(CONFIG)
+    config["model_type"] = args.model_type
+    config["subset"] = args.subset
+    config["pred_root"] = args.pred_root
+    config["base_output_dir"] = args.analysis_root
+    config["patch_size"] = args.patch_size
+    config["retention_target"] = args.retention_target
+    config["max_files"] = args.max_files
+
+    model_type = config["model_type"]
+    subset = config["subset"]
+    base_output_dir = config["base_output_dir"]
+    retention_target = config["retention_target"]
 
     output_dir = os.path.join(base_output_dir, model_type)
     os.makedirs(output_dir, exist_ok=True)
@@ -302,10 +332,10 @@ def main():
         print(f"  retention_target : {retention_target}")
         print(f"  unc_threshold    : {unc_threshold:.6f}")
         print(f"  acc_threshold    : {acc_threshold:.6f}  (IoU)")
-        print(f"  patch_size       : {CONFIG['patch_size']}x{CONFIG['patch_size']}")
+        print(f"  patch_size       : {config['patch_size']}x{config['patch_size']}")
 
         per_image_rows, totals = process_all_images(
-            CONFIG, criteria_name, acc_threshold, unc_threshold
+            config, criteria_name, acc_threshold, unc_threshold
         )
 
         if not per_image_rows:

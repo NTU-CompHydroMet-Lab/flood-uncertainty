@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import matplotlib.lines as mlines
@@ -6,11 +7,13 @@ import numpy as np
 import rasterio
 from tqdm import tqdm
 
+from path_defaults import DEFAULT_ANALYSIS_ROOT, DEFAULT_DATA_ROOT, DEFAULT_PRED_ROOT
 
 SUBSET = "test"
-DATA_ROOT = Path("/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data")
-PRED_ROOT = Path("/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/val_test_inference")
-OUTPUT_ROOT = Path("/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/analysis_S2/compare")
+DATA_ROOT = DEFAULT_DATA_ROOT
+PRED_ROOT = DEFAULT_PRED_ROOT
+OUTPUT_ROOT = DEFAULT_ANALYSIS_ROOT / "compare"
+MAX_FILES = None
 
 MODEL_ORDER = ["EDL", "ensemble", "mcdropout"]
 MAX_PLOT_SIZE = 1600
@@ -101,6 +104,18 @@ MODE_LAYOUTS = {
 }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot FP/FN overlays on uncertainty maps for EDL/ensemble/mcdropout."
+    )
+    parser.add_argument("--subset", choices=["val", "test"], default=SUBSET)
+    parser.add_argument("--data-root", default=str(DATA_ROOT))
+    parser.add_argument("--pred-root", default=str(PRED_ROOT))
+    parser.add_argument("--output-root", default=str(OUTPUT_ROOT))
+    parser.add_argument("--max-files", type=int, default=MAX_FILES)
+    return parser.parse_args()
+
+
 def build_model_paths(filename):
     return {
         "EDL": {
@@ -120,7 +135,10 @@ def build_model_paths(filename):
 
 def list_test_filenames():
     s2_dir = DATA_ROOT / SUBSET / "S2"
-    return sorted(path.stem for path in s2_dir.glob("*.tif"))
+    filenames = sorted(path.stem for path in s2_dir.glob("*.tif"))
+    if MAX_FILES is not None:
+        filenames = filenames[:MAX_FILES]
+    return filenames
 
 
 def collect_required_paths(filename):
@@ -377,6 +395,14 @@ def save_mode_figure(filename, mode_name, event_bundle):
 
 
 def main():
+    global SUBSET, DATA_ROOT, PRED_ROOT, OUTPUT_ROOT, MAX_FILES
+    args = parse_args()
+    SUBSET = args.subset
+    DATA_ROOT = Path(args.data_root)
+    PRED_ROOT = Path(args.pred_root)
+    OUTPUT_ROOT = Path(args.output_root)
+    MAX_FILES = args.max_files
+
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
     filenames = list_test_filenames()

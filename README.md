@@ -77,8 +77,18 @@ bash scripts/smoke.sh
 SMOKE_SUBSET=val SMOKE_MAX_FILES=1 SMOKE_CONFIG=configurations/v2.json bash scripts/smoke.sh
 ```
 
-## 6. 路徑說明
+## 6. Analysis 指令
+
+```bash
+python analysis/analysis_S2.py --model-type EDL --subset val --max-files 1
+python analysis/compute_pavpu.py --model-type EDL --subset val --max-files 1
+python analysis/plot_retention_curve_compare.py --group all
+python analysis/plot_epistemic_fp_fn_compare.py --subset val --max-files 1
+```
+
+## 7. 路徑說明
 
 - 資料根目錄：預設由 config 的 `data_params.path_to_splits` 決定（可用 `--data_root` 覆寫）
 - 推論與評估輸出：預設寫到 `artifacts/results/val_test_inference`
+- analysis 輸出：預設寫到 `artifacts/results/analysis_S2` 與 `artifacts/results/figures`
 - 權重與 checkpoints：預設放在 `artifacts/models`

@@ -1,6 +1,5 @@
 import argparse
 import csv
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,19 +10,12 @@ from tqdm import tqdm
 import case_compare_shared as shared
 import plot_case_confusion_compare as confusion_plot
 import plot_case_uncertainty_compare as uncertainty_plot
-
-
-PLOT_DIR = Path(__file__).resolve().parent
-EDA_DIR = PLOT_DIR.parent / "EDA"
-if str(EDA_DIR) not in sys.path:
-    sys.path.append(str(EDA_DIR))
+from path_defaults import DEFAULT_ANALYSIS_ROOT, DEFAULT_FIGURE_ROOT
 
 from compute_pavpu import compute_pavpu_for_image, get_thresholds
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "report" / "image_of_md" / "case_tiles"
-DEFAULT_ANALYSIS_ROOT = REPO_ROOT / "result" / "analysis_S2"
+DEFAULT_OUTPUT_ROOT = DEFAULT_FIGURE_ROOT / "case_tiles"
 DEFAULT_EVENT_IDS = [
     "EMSR466_AOI01_DEL_PRODUCT",
     "EMSR264_08VATOMANDRY_DEL_v2",
@@ -114,6 +106,12 @@ def parse_args():
         action="store_true",
         default=True,
         help="Compute and export PAVPU values to a CSV file for uncertainty tiles.",
+    )
+    parser.add_argument(
+        "--no-show-pavpu",
+        action="store_false",
+        dest="show_pavpu",
+        help="Skip PAVPU computation and CSV export for uncertainty tiles.",
     )
     return parser.parse_args()
 

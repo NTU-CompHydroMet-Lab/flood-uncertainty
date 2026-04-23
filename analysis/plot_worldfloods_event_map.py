@@ -10,10 +10,9 @@ os.environ.setdefault("CARTOPY_DATA_DIR", str(Path("/tmp") / "cartopy"))
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+from path_defaults import DEFAULT_DATA_ROOT, DEFAULT_FIGURE_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_ROOT = Path("/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data")
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "report" / "image_of_md"
+DEFAULT_OUTPUT_DIR = DEFAULT_FIGURE_ROOT
 DEFAULT_OUTPUT_NAME = "worldfloods_event_map.png"
 
 SPLIT_ORDER = ["train", "val", "test"]

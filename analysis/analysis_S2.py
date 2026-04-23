@@ -1,4 +1,4 @@
-
+import argparse
 import os
 import sys
 import numpy as np
@@ -8,6 +8,8 @@ from glob import glob
 from pathlib import Path
 from tqdm import tqdm
 from georeader.rasterio_reader import RasterioReader
+
+from path_defaults import DEFAULT_ANALYSIS_ROOT, DEFAULT_PRED_ROOT
 
 # Add parent directory to path to import matrics
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -103,10 +105,24 @@ SELECTED_CRITERIA = {
 CONFIG = {
     "model_type":      "EDL",   # ← 切換此處："EDL" "ensemble" 或 "mcdropout"
     "subset":          "test",
-    "pred_root":       "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/val_test_inference",
-    "base_output_dir": "/home/NAS/homes/cjchen-10025/ML4FloodsUncertainty/result/analysis_S2",
+    "pred_root":       str(DEFAULT_PRED_ROOT),
+    "base_output_dir": str(DEFAULT_ANALYSIS_ROOT),
     "retention_steps": 50,
+    "max_files":       None,
 }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Compute retention curves from confusion maps and prediction outputs."
+    )
+    parser.add_argument("--model-type", choices=["EDL", "ensemble", "mcdropout"], default=CONFIG["model_type"])
+    parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"])
+    parser.add_argument("--pred-root", default=CONFIG["pred_root"])
+    parser.add_argument("--output-dir", default=CONFIG["base_output_dir"])
+    parser.add_argument("--retention-steps", type=int, default=CONFIG["retention_steps"])
+    parser.add_argument("--max-files", type=int, default=CONFIG["max_files"])
+    return parser.parse_args()
 
 
 def load_and_prepare_vectors(config, criteria_name):
@@ -129,6 +145,10 @@ def load_and_prepare_vectors(config, criteria_name):
     # 或者 cm_{original_filename}.tif (取決於 calculate_matrics.py 的輸出)
     # 我們先搜尋所有 cm_*.tif
     cm_files = sorted(glob(f"{target_dir}/cm_*.tif"))
+    max_files = config.get("max_files")
+    if max_files is not None:
+        cm_files = cm_files[:max_files]
+        print(f"Limited to first {len(cm_files)} files (max_files={max_files})")
     print(f"Found {len(cm_files)} CM files in {target_dir}")
     
     huge_cm_list = []
@@ -242,8 +262,17 @@ def plot_retention_curves(results_dict, output_dir, label):
 
 
 def main():
-    model_type = CONFIG["model_type"]
-    output_dir = os.path.join(CONFIG["base_output_dir"], model_type)
+    args = parse_args()
+    config = dict(CONFIG)
+    config["model_type"] = args.model_type
+    config["subset"] = args.subset
+    config["pred_root"] = args.pred_root
+    config["base_output_dir"] = args.output_dir
+    config["retention_steps"] = args.retention_steps
+    config["max_files"] = args.max_files
+
+    model_type = config["model_type"]
+    output_dir = os.path.join(config["base_output_dir"], model_type)
     os.makedirs(output_dir, exist_ok=True)
 
     selected_criteria = SELECTED_CRITERIA[model_type]
@@ -258,7 +287,7 @@ def main():
         
         crit_config = CRITERIA_MENU[model_type][criteria_key]
         
-        cm_vec, crit_vec = load_and_prepare_vectors(CONFIG, criteria_key)
+        cm_vec, crit_vec = load_and_prepare_vectors(config, criteria_key)
         
         if cm_vec is None:
             continue
@@ -267,7 +296,7 @@ def main():
         results = calculate_metrics_by_retention(
             cm_vec, 
             crit_vec, 
-            retention_steps=CONFIG["retention_steps"],
+            retention_steps=config["retention_steps"],
             filter_mode=crit_config["filter_mode"]
         )
         

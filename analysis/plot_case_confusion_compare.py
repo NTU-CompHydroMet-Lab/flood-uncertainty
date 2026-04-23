@@ -6,14 +6,12 @@ import numpy as np
 import rasterio
 
 import case_compare_shared as shared
+from path_defaults import DEFAULT_DATA_ROOT, DEFAULT_FIGURE_ROOT, DEFAULT_PRED_ROOT
 
 
 DEFAULT_EVENT_ID = "EMSR466_AOI01_DEL_PRODUCT"
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_ROOT = Path("/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data")
-DEFAULT_PRED_ROOT = REPO_ROOT / "result" / "val_test_inference"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "report" / "image_of_md"
+DEFAULT_OUTPUT_DIR = DEFAULT_FIGURE_ROOT
 
 CONFUSION_TITLE_FONTSIZE = shared.CONFUSION_TITLE_FONTSIZE
 CONFUSION_TICK_FONTSIZE = shared.CONFUSION_TICK_FONTSIZE

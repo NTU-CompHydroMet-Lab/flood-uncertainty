@@ -5,10 +5,9 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import pandas as pd
 
+from path_defaults import DEFAULT_ANALYSIS_ROOT, DEFAULT_FIGURE_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_ANALYSIS_ROOT = REPO_ROOT / "result" / "analysis_S2"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "report" / "image_of_md"
+DEFAULT_OUTPUT_DIR = DEFAULT_FIGURE_ROOT
 
 REQUIRED_COLUMNS = {"retention_rate", "iou", "precision", "recall"}
 METRIC_ORDER = ["iou", "precision", "recall"]
