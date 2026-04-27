@@ -150,7 +150,7 @@ print(f"smoke config written: {output_config_path}")
 PY
 
 echo "Running smoke train: model=$MODEL script=$TRAIN_SCRIPT"
-uv run python "$TRAIN_SCRIPT" --config "$SMOKE_CONFIG_PATH" --mode train --data_root "$MINI_DATA_ROOT"
+uv run python "$TRAIN_SCRIPT" --config "$SMOKE_CONFIG_PATH" --data_root "$MINI_DATA_ROOT"
 
 echo "SMOKE TRAIN PASS"
 echo "model outputs root: $SMOKE_MODEL_ROOT"

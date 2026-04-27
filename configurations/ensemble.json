@@ -3,18 +3,8 @@
     "experiment_name": "WF2_unetv2_bgriswirs_ensemble",
     "seed": 42,
     "model_params": {
-      "ensemble_dirs": [
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_0/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_1/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_2/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_3/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_4/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_5/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_6/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_7/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_8/checkpoint",
-        "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble/WF2_unetv2_bgriswirs_test_9/checkpoint"
-      ],
+      "ensemble_members": 10,
+      "ensemble_root_dir": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/ensemble",
       "model_folder": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models",
       "model_version": "v2",
       "hyperparameters": {
@@ -93,9 +83,6 @@
     "model_params": {}
   },
   "infer": {
-    "model_params": {}
-  },
-  "validate_only": {
     "model_params": {}
   }
 }

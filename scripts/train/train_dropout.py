@@ -25,12 +25,9 @@ warnings.filterwarnings("ignore")
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "dropout.json")
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
 parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
-config = load_mode_config(args.config, mode=args.mode)
-if args.mode == "validate_only":
-    raise NotImplementedError("validate_only is currently supported in scripts/train/train_edl.py")
+config = load_mode_config(args.config, mode="train")
 data_root = args.data_root or config.data_params.path_to_splits
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
@@ -97,6 +94,8 @@ wandb_logger = WandbLogger(
     project=config.wandb_project, 
 )
 
+use_gpu = config.gpus is not None
+
 trainer = Trainer(
     fast_dev_run=False,
     logger=wandb_logger,
@@ -105,8 +104,8 @@ trainer = Trainer(
     accumulate_grad_batches=1,
     gradient_clip_val=0.0,
     benchmark=False,
-    accelerator='gpu' if config.gpus else 'cpu', 
-    devices=[int(config.gpus)] if config.gpus else 'auto',  
+    accelerator='gpu' if use_gpu else 'cpu', 
+    devices=[int(config.gpus)] if use_gpu else 'auto',  
     max_epochs=config.model_params.hyperparameters.max_epochs,
     check_val_every_n_epoch=config.model_params.hyperparameters.val_every,
 )

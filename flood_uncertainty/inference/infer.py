@@ -235,9 +235,9 @@ def load_model(config_path: str, model_type: str, collection_name: str = "S2", m
         print(f"channel configuration: {channel_configuration}")
     print(f"used channels: {channels}")
 
-    weights_path = config.model_params.get("pretrained_path")
+    weights_path = config.model_params.get("checkpoint_path")
     if weights_path is None:
-        raise ValueError("pretrained_path not found in config.model_params")
+        raise ValueError("checkpoint_path not found in config.model_params")
     checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("state_dict", checkpoint)
 
@@ -246,7 +246,7 @@ def load_model(config_path: str, model_type: str, collection_name: str = "S2", m
     elif model_type == "EDL-SAR":
         model = EDL_SAR_Unet(config.model_params)
     elif model_type == "v2":
-        # We load weights manually from `pretrained_path`, so temporarily force train-mode
+        # We load weights manually from `checkpoint_path`, so temporarily force train-mode
         # model construction to avoid auto-loading path assertions in get_model(test=True).
         original_train_flag = config.model_params.get("train", False)
         original_test_flag = config.model_params.get("test", False)

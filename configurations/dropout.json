@@ -84,8 +84,5 @@
   },
   "infer": {
     "model_params": {}
-  },
-  "validate_only": {
-    "model_params": {}
   }
 }

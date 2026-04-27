@@ -6,7 +6,7 @@ Flood segmentation uncertainty 專案（`v2` / `EDL` / `ensemble` / `MC dropout`
 
 - `flood_uncertainty/`: 核心套件（models/losses/metrics/inference/utils）
 - `scripts/`: train / infer / eval 入口
-- `configurations/`: 每個方法一份 config（`shared/train/infer/validate_only`）
+- `configurations/`: 每個方法一份 config（`shared/train/infer`）
 - `artifacts/`: 權重與輸出（已在 `.gitignore`）
 - `ml4floods/`, `mlguess/`: 本地依賴
 
@@ -25,32 +25,25 @@ uv run python -V
 
 - `train`: 訓練
 - `infer`: 推論
-- `validate_only`: 只跑 validation（目前主要用於 EDL）
 
 ## 4. 常用指令
 
 ### 4.1 訓練
 
 ```bash
-uv run python scripts/train/train_v2.py --config configurations/v2.json --mode train
-uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train
-uv run python scripts/train/train_dropout.py --config configurations/dropout.json --mode train
-uv run python scripts/train/train_ensemble.py --config configurations/ensemble.json --mode train
+uv run python scripts/train/train_v2.py --config configurations/v2.json
+uv run python scripts/train/train_edl.py --config configurations/edl.json
+uv run python scripts/train/train_dropout.py --config configurations/dropout.json
+uv run python scripts/train/train_ensemble.py --config configurations/ensemble.json
 ```
 
 可選覆寫資料根目錄：
 
 ```bash
-uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train --data_root /path/to/worldfloods_v2/data
+uv run python scripts/train/train_edl.py --config configurations/edl.json --data_root /path/to/worldfloods_v2/data
 ```
 
-### 4.2 只驗證（EDL）
-
-```bash
-uv run python scripts/train/train_edl.py --config configurations/edl.json --mode validate_only
-```
-
-### 4.3 推論
+### 4.2 推論
 
 ```bash
 uv run python scripts/inference/run_inference.py --model_type v2 --config_v2 configurations/v2.json
@@ -59,7 +52,7 @@ uv run python scripts/inference/run_inference_ensemble.py --mode ensemble --conf
 uv run python scripts/inference/run_inference_ensemble.py --mode mcdropout --config configurations/dropout.json
 ```
 
-### 4.4 評估
+### 4.3 評估
 
 ```bash
 uv run python scripts/eval/eval_metrics.py --model_type v2 --subset val

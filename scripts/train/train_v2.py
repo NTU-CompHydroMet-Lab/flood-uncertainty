@@ -27,12 +27,9 @@ from flood_uncertainty.utils.config_loader import load_mode_config
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "v2.json")
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
 parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
-config = load_mode_config(args.config, mode=args.mode)
-if args.mode == "validate_only":
-    raise NotImplementedError("validate_only is currently supported in scripts/train/train_edl.py")
+config = load_mode_config(args.config, mode="train")
 data_root = args.data_root or config.data_params.path_to_splits
 
 # Set this to the path of the metadata CSV from huggingface
@@ -197,10 +194,6 @@ for _i, (xi, ax) in enumerate(zip(batch["mask"][:n_images,1], axs[3])):
         ax.legend(handles=patches_preds_water,
                   loc='upper right')
 
-# save picture
-fig.savefig("batch_plot.png")
-
-
 # %% [markdown]
 # # Setup Model
 
@@ -275,6 +268,8 @@ config.gpus = config.gpus
 
 # config.model_params.hyperparameters.max_epochs = 3 # train for maximum 4 epochs
 
+use_gpu = config.gpus is not None
+
 trainer = Trainer(
     fast_dev_run=False,
     logger=wandb_logger,
@@ -284,8 +279,8 @@ trainer = Trainer(
     gradient_clip_val=0.0,
     # auto_lr_find=False,
     benchmark=False,
-    accelerator='gpu' if config.gpus else 'cpu',  # 改用 accelerator
-    devices=[int(config.gpus)] if config.gpus else 'auto',  # 改用 devices
+    accelerator='gpu' if use_gpu else 'cpu',  # 改用 accelerator
+    devices=[int(config.gpus)] if use_gpu else 'auto',  # 改用 devices
     # gpus=config.gpus,
     max_epochs=config.model_params.hyperparameters.max_epochs,
     check_val_every_n_epoch=config.model_params.hyperparameters.val_every,

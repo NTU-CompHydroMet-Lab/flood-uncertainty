@@ -5,6 +5,7 @@ import sys
 import os
 import argparse
 import json
+import re
 from glob import glob
 from pathlib import Path
 from datetime import datetime
@@ -103,6 +104,42 @@ def resolve_checkpoint_dir(config) -> str:
     raise ValueError("Cannot resolve checkpoint_dir for mcdropout from config.model_params")
 
 
+def resolve_ensemble_dirs(config) -> list[str]:
+    """Resolve ensemble member checkpoint directories from ensemble_root_dir."""
+    model_params = config.model_params
+    ensemble_root_dir = model_params.get("ensemble_root_dir")
+    if not ensemble_root_dir:
+        raise ValueError("ensemble mode requires config.model_params['ensemble_root_dir']")
+
+    root_path = Path(ensemble_root_dir)
+    if not root_path.is_dir():
+        raise ValueError(f"ensemble_root_dir does not exist or is not a directory: {ensemble_root_dir}")
+
+    pattern = re.compile(rf"^{re.escape(config.experiment_name)}_(\d+)$")
+    indexed_dirs = []
+    for child in root_path.iterdir():
+        if not child.is_dir():
+            continue
+
+        matched = pattern.fullmatch(child.name)
+        if not matched:
+            continue
+
+        checkpoint_dir = child / "checkpoint"
+        if checkpoint_dir.is_dir():
+            indexed_dirs.append((int(matched.group(1)), str(checkpoint_dir)))
+
+    indexed_dirs.sort(key=lambda item: item[0])
+    ensemble_dirs = [checkpoint_dir for _, checkpoint_dir in indexed_dirs]
+    if not ensemble_dirs:
+        raise ValueError(
+            "No ensemble members found under "
+            f"{ensemble_root_dir} matching {config.experiment_name}_*/checkpoint"
+        )
+
+    return ensemble_dirs
+
+
 def get_mode_settings(config) -> dict:
     """
     根據 CONFIG['mode'] 回傳對應的 inference 設定。
@@ -110,15 +147,14 @@ def get_mode_settings(config) -> dict:
     mode = CONFIG["mode"]
 
     if mode == "ensemble":
-        ensemble_dirs = config.model_params.get("ensemble_dirs")
-        if not ensemble_dirs:
-            raise ValueError("ensemble mode requires config.model_params['ensemble_dirs']")
+        ensemble_dirs = resolve_ensemble_dirs(config)
 
         return {
             "mode": "ensemble",
             "runner": run_ensemble_inference,
             "member_count": len(ensemble_dirs),
             "ensemble_dirs": ensemble_dirs,
+            "ensemble_root_dir": config.model_params["ensemble_root_dir"],
         }
 
     if mode == "mcdropout":
@@ -260,6 +296,7 @@ if __name__ == "__main__":
 
         if mode_settings["mode"] == "ensemble":
             run_config["n_models"] = mode_settings["member_count"]
+            run_config["ensemble_root_dir"] = mode_settings["ensemble_root_dir"]
             run_config["ensemble_dirs"] = mode_settings["ensemble_dirs"]
         else:
             run_config["n_samples"] = mode_settings["member_count"]

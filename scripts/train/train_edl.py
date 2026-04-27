@@ -1,6 +1,7 @@
 import sys
 import os
 import argparse
+import shutil
 # 計算到專案根目錄的相對路徑
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
@@ -8,7 +9,6 @@ sys.path.insert(0, project_root)
 print(f"專案根目錄: {project_root}")
 import json
 import pandas as pd
-import matplotlib.pyplot as plt
 import wandb
 from typing import Any, Dict
 from pytorch_lightning import seed_everything, Trainer
@@ -17,10 +17,6 @@ from pytorch_lightning.loggers import WandbLogger
 
 from flood_uncertainty.utils.config_loader import load_mode_config
 from ml4floods.models.dataset_setup import get_dataset
-# from ml4floods.models.model_setup import get_model
-from ml4floods.models import worldfloods_model
-from ml4floods.data.worldfloods import configs
-from ml4floods.visualization import plot_utils
 from flood_uncertainty.models.edl import EDL_ML4FloodsModel
 import torch
 
@@ -32,10 +28,9 @@ import torch
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "edl.json")
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
 parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
-config = load_mode_config(args.config, mode=args.mode)
+config = load_mode_config(args.config, mode="train")
 data_root = args.data_root or config.data_params.path_to_splits
 
 # Set this to the path of the metadata CSV from huggingface
@@ -95,65 +90,8 @@ dm.prepare_data()
 train_dl = dm.train_dataloader()
 val_dl = dm.val_dataloader()
 
-# Get sample batch
-for batch in train_dl:
+for _batch in train_dl:
     break
-
-# =============================================================================
-# Inspect the batch
-# 
-# The batch is a dictionary with the S2 13 band image normalized and the mask.
-# The mask has 2 channels:
-# * **Cloud channel**: 0 invalid, 1 clear, 2 cloud
-# * **Water channel**: 0 invalid, 1 land, 2 water
-# =============================================================================
-print(batch.keys())
-print(f"Image shape: {batch['image'].shape}, Mask shape: {batch['mask'].shape}")
-
-# =============================================================================
-# Plot the batch
-# =============================================================================
-n_images = 6
-fig, axs = plt.subplots(4, n_images, figsize=(18, 12), tight_layout=True, sharex=True, sharey=True)
-
-worldfloods_model.plot_batch(
-    batch["image"][:n_images],
-    channel_configuration=config.data_params.channel_configuration,
-    axs=axs[0],
-    max_clip_val=3500.
-)
-
-worldfloods_model.plot_batch(
-    batch["image"][:n_images],
-    channel_configuration=config.data_params.channel_configuration,
-    bands_show=["B11", "B8", "B4"],
-    axs=axs[1],
-    max_clip_val=4500.
-)
-
-cmap_preds_clouds, norm_preds_clouds, patches_preds_clouds = plot_utils.get_cmap_norm_colors(
-    configs.COLORS_WORLDFLOODS_INVCLEARCLOUD,
-    ["invalid", "clear", "cloud"]
-)
-
-for _i, (xi, ax) in enumerate(zip(batch["mask"][:n_images, 0], axs[2])):
-    ax.imshow(xi, cmap=cmap_preds_clouds, norm=norm_preds_clouds, interpolation='nearest')
-    ax.axis("off")
-    if _i == (len(batch["image"][:n_images, 0]) - 1):
-        ax.legend(handles=patches_preds_clouds, loc='upper right')
-
-cmap_preds_water, norm_preds_water, patches_preds_water = plot_utils.get_cmap_norm_colors(
-    configs.COLORS_WORLDFLOODS_INVLANDWATER,
-    ["invalid", "land", "water"]
-)
-
-for _i, (xi, ax) in enumerate(zip(batch["mask"][:n_images, 1], axs[3])):
-    ax.imshow(xi, cmap=cmap_preds_water, norm=norm_preds_water, interpolation='nearest')
-    ax.axis("off")
-    if _i == (len(batch["mask"][:n_images, 0]) - 1):
-        ax.legend(handles=patches_preds_water, loc='upper right')
-
-fig.savefig("batch_plot.png")
 
 # =============================================================================
 # Setup Model
@@ -163,7 +101,7 @@ model = EDL_ML4FloodsModel(config.model_params, normalized_data=True)
 
 if config.model_params.get("pretrained_path", None):
     pretrained_path = config.model_params.get("pretrained_path", None)
-    loaded = torch.load(pretrained_path, map_location='cpu')
+    loaded = torch.load(pretrained_path, map_location='cpu', weights_only=False)
     
     if pretrained_path.endswith('.ckpt'):
         pretrained_dict = loaded.get('state_dict', loaded.get('model_state_dict', loaded))
@@ -187,6 +125,23 @@ else:
 
 # Setup callbacks
 experiment_path = f"{config.model_params.model_folder}/{config.experiment_name}"
+os.makedirs(experiment_path, exist_ok=True)
+
+original_config_copy_path = os.path.join(experiment_path, "original_config.json")
+shutil.copyfile(args.config, original_config_copy_path)
+
+run_meta_path = os.path.join(experiment_path, "run_meta.json")
+with open(run_meta_path, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "config_path": os.path.abspath(args.config),
+            "mode": "train",
+            "data_root_override": args.data_root,
+            "resolved_data_root": data_root,
+        },
+        f,
+        indent=2,
+    )
 
 checkpoint_callback = ModelCheckpoint(
     dirpath=f"{experiment_path}/checkpoint",
@@ -226,6 +181,8 @@ else:
 # =============================================================================
 # Setup Trainer
 # =============================================================================
+use_gpu = config.gpus is not None
+
 trainer = Trainer(
     fast_dev_run=False,
     logger=wandb_logger,
@@ -234,8 +191,8 @@ trainer = Trainer(
     accumulate_grad_batches=1,
     gradient_clip_val=0.0,
     benchmark=False,
-    accelerator='gpu' if config.gpus else 'cpu',
-    devices=[int(config.gpus)] if config.gpus else 'auto',
+    accelerator='gpu' if use_gpu else 'cpu',
+    devices=[int(config.gpus)] if use_gpu else 'auto',
     max_epochs=config.model_params.hyperparameters.max_epochs,
     check_val_every_n_epoch=config.model_params.hyperparameters.val_every,
 )
@@ -243,7 +200,4 @@ trainer = Trainer(
 # =============================================================================
 # Training
 # =============================================================================
-if not config.model_params.get("val_only", False):
-    trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
-else:
-    trainer.validate(model, val_dl)
+trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)

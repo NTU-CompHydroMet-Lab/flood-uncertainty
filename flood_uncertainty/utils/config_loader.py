@@ -5,13 +5,12 @@ from typing import Any, Dict
 from ml4floods.data.worldfloods.configs import CHANNELS_CONFIGURATIONS
 from ml4floods.models.utils.configuration import AttrDict
 
-SUPPORTED_MODES = {"train", "infer", "validate_only"}
-REQUIRED_TOP_LEVEL_BLOCKS = {"shared", "train", "infer", "validate_only"}
-LEGACY_MODE_FLAGS = {"train", "test", "val_only"}
+SUPPORTED_MODES = {"train", "infer"}
+REQUIRED_TOP_LEVEL_BLOCKS = {"shared", "train", "infer"}
+LEGACY_MODE_FLAGS = {"train", "test"}
 RUNTIME_MODE_FLAGS = {
-    "train": {"train": True, "test": False, "val_only": False},
-    "infer": {"train": False, "test": True, "val_only": False},
-    "validate_only": {"train": False, "test": True, "val_only": True},
+    "train": {"train": True, "test": False},
+    "infer": {"train": False, "test": True},
 }
 
 

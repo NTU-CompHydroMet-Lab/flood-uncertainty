@@ -26,12 +26,9 @@ warnings.filterwarnings("ignore")
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "ensemble.json")
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
 parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
-config = load_mode_config(args.config, mode=args.mode)
-if args.mode == "validate_only":
-    raise NotImplementedError("validate_only is currently supported in scripts/train/train_edl.py")
+config = load_mode_config(args.config, mode="train")
 data_root = args.data_root or config.data_params.path_to_splits
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
@@ -71,15 +68,21 @@ dm.prepare_data()
 train_dl = dm.train_dataloader()
 val_dl = dm.val_dataloader()
 
-# train 20 models in ensemble
-for i in range(20):
+ensemble_members = config.model_params.get("ensemble_members", 10)
+ensemble_root_dir = config.model_params.get("ensemble_root_dir")
+if not ensemble_root_dir:
+    raise ValueError("config.model_params['ensemble_root_dir'] is required for ensemble training")
+
+# train models in ensemble
+for i in range(ensemble_members):
     # Seed
     seed_everything(config.seed + i)
 
-    experiment_path = f"{config.model_params.model_folder}/{config.experiment_name}_{i}"
+    experiment_path = os.path.join(ensemble_root_dir, f"{config.experiment_name}_{i}")
+    checkpoint_dir = os.path.join(experiment_path, "checkpoint")
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=f"{experiment_path}/checkpoint",
+        dirpath=checkpoint_dir,
         save_top_k=5,
         verbose=True,
         monitor=config.model_params.hyperparameters.metric_monitor,
@@ -99,6 +102,8 @@ for i in range(20):
         project=config.wandb_project, 
     )
 
+    use_gpu = config.gpus is not None
+
     trainer = Trainer(
         fast_dev_run=False,
         logger=wandb_logger,
@@ -107,8 +112,8 @@ for i in range(20):
         accumulate_grad_batches=1,
         gradient_clip_val=0.0,
         benchmark=False,
-        accelerator='gpu' if config.gpus else 'cpu', 
-        devices=[int(config.gpus)] if config.gpus else 'auto',  
+        accelerator='gpu' if use_gpu else 'cpu', 
+        devices=[int(config.gpus)] if use_gpu else 'auto',  
         max_epochs=config.model_params.hyperparameters.max_epochs,
         check_val_every_n_epoch=config.model_params.hyperparameters.val_every,
     )
