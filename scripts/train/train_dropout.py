@@ -1,6 +1,7 @@
 import sys
 import os
 import argparse
+import torch
 # 取得當前 notebook 的目錄
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 # 計算到專案根目錄的相對路徑
@@ -29,10 +30,12 @@ parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode="train")
 data_root = args.data_root or config.data_params.path_to_splits
+experiment_path = f"{config.model_params.model_folder}/{config.experiment_name}"
+os.makedirs(experiment_path, exist_ok=True)
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
 # Point this to the root of the dataset on the mounted bucket
-JSON_PATH = os.path.join(data_root, "train_test_split_from_csv.json")
+JSON_PATH = os.path.join(experiment_path, "train_test_split_from_csv.json")
 # Seed
 seed_everything(config.seed)
 
@@ -69,10 +72,6 @@ dm.prepare_data()
 train_dl = dm.train_dataloader()
 val_dl = dm.val_dataloader()
 
- 
-
-experiment_path = f"{config.model_params.model_folder}/{config.experiment_name}"
-
 checkpoint_callback = ModelCheckpoint(
     dirpath=f"{experiment_path}/checkpoint",
     save_top_k=5,
@@ -91,10 +90,12 @@ early_stop_callback = EarlyStopping(
 callbacks = [checkpoint_callback, early_stop_callback]
 wandb_logger = WandbLogger(
     name=f"{config.experiment_name}",
-    project=config.wandb_project, 
+    project=config.wandb_project,
+    entity=getattr(config, "wandb_entity", None),
 )
 
 use_gpu = config.gpus is not None
+resume_ckpt = config.resume_from_checkpoint or None
 
 trainer = Trainer(
     fast_dev_run=False,
@@ -111,5 +112,29 @@ trainer = Trainer(
 )
 
 model = get_model(config.model_params)
-trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
+pretrained_path = config.model_params.get("pretrained_path")
+if pretrained_path:
+    loaded = torch.load(pretrained_path, map_location="cpu", weights_only=False)
+    if pretrained_path.endswith(".ckpt"):
+        pretrained_dict = loaded.get("state_dict", loaded.get("model_state_dict", loaded))
+    else:
+        pretrained_dict = loaded
+
+    model_dict = model.state_dict()
+    filtered_dict = {
+        key: value for key, value in pretrained_dict.items()
+        if key in model_dict and value.shape == model_dict[key].shape
+    }
+    model_dict.update(filtered_dict)
+    model.load_state_dict(model_dict)
+
+    skipped = len(pretrained_dict) - len(filtered_dict)
+    print(f"Loaded model weights: {pretrained_path}")
+    print(f"  Loaded: {len(filtered_dict)}/{len(pretrained_dict)} weights")
+    if skipped > 0:
+        print(f"  Skipped {skipped} weights due to shape mismatch (will use random initialization)")
+else:
+    print("No pretrained model weights provided")
+
+trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl, ckpt_path=resume_ckpt)
 wandb.finish()

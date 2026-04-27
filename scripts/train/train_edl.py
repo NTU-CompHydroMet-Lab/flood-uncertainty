@@ -32,11 +32,13 @@ parser.add_argument("--data_root", default=None)
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode="train")
 data_root = args.data_root or config.data_params.path_to_splits
+experiment_path = f"{config.model_params.model_folder}/{config.experiment_name}"
+os.makedirs(experiment_path, exist_ok=True)
 
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
 # Point this to the root of the dataset on the mounted bucket
-JSON_PATH = os.path.join(data_root, "train_test_split_from_csv.json")
+JSON_PATH = os.path.join(experiment_path, "train_test_split_from_csv.json")
 
 # Seed
 seed_everything(config.seed)
@@ -123,10 +125,6 @@ if config.model_params.get("pretrained_path", None):
 else:
     print("No pretrained model weights provided")
 
-# Setup callbacks
-experiment_path = f"{config.model_params.model_folder}/{config.experiment_name}"
-os.makedirs(experiment_path, exist_ok=True)
-
 original_config_copy_path = os.path.join(experiment_path, "original_config.json")
 shutil.copyfile(args.config, original_config_copy_path)
 
@@ -174,6 +172,7 @@ if setup_weights_and_biases:
     wandb_logger = WandbLogger(
         name=config.experiment_name,
         project=config.wandb_project,
+        entity=getattr(config, "wandb_entity", None),
     )
 else:
     wandb_logger = None
@@ -182,6 +181,7 @@ else:
 # Setup Trainer
 # =============================================================================
 use_gpu = config.gpus is not None
+resume_ckpt = config.resume_from_checkpoint or None
 
 trainer = Trainer(
     fast_dev_run=False,
@@ -200,4 +200,4 @@ trainer = Trainer(
 # =============================================================================
 # Training
 # =============================================================================
-trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
+trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl, ckpt_path=resume_ckpt)
