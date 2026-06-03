@@ -1,9 +1,8 @@
 import sys
 import os
-import argparse
 # 計算到專案根目錄的相對路徑
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.insert(0, project_root)
 print(f"專案根目錄: {project_root}")
 import json
@@ -15,13 +14,13 @@ from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
-from flood_uncertainty.utils.config_loader import load_mode_config
+from ml4floods.models.config_setup import get_default_config
 from ml4floods.models.dataset_setup import get_dataset
 # from ml4floods.models.model_setup import get_model
 from ml4floods.models import worldfloods_model
 from ml4floods.data.worldfloods import configs
 from ml4floods.visualization import plot_utils
-from flood_uncertainty.models.edl import EDL_ML4FloodsModel
+from model import EDL_ML4FloodsModel
 import torch
 
 
@@ -29,19 +28,14 @@ import torch
 # =============================================================================
 # Configuration Setup
 # =============================================================================
-DEFAULT_CONFIG_PATH = os.path.join(project_root, "configurations", "edl.json")
-parser = argparse.ArgumentParser()
-parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
-parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
-parser.add_argument("--data_root", default=None)
-args, _ = parser.parse_known_args()
-config = load_mode_config(args.config, mode=args.mode)
-data_root = args.data_root or config.data_params.path_to_splits
+DATASET_PATH = "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data"
+CONFIG_PATH = os.path.join(project_root, "org_code", "hf_hub_download_uncertainty.json")
+config = get_default_config(CONFIG_PATH)
 
 # Set this to the path of the metadata CSV from huggingface
-CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
+CSV_PATH = os.path.join(DATASET_PATH, "dataset_metadata.csv")
 # Point this to the root of the dataset on the mounted bucket
-JSON_PATH = os.path.join(data_root, "train_test_split_from_csv.json")
+JSON_PATH = os.path.join(DATASET_PATH, "train_test_split_from_csv.json")
 
 # Seed
 seed_everything(config.seed)
@@ -73,7 +67,7 @@ def convert_metadata_csv_to_json() -> None:
         files = csv[csv.split == split]["event id"]
         for mod in modalities:
             out[split][mod] = [
-                os.path.join(data_root, split, mod, f"{fn}.tif")
+                os.path.join(DATASET_PATH, split, mod, f"{fn}.tif")
                 for fn in files.to_list()
             ]
 
@@ -86,7 +80,7 @@ convert_metadata_csv_to_json()
 # Setup data parameters
 config.data_params.loader_type = "local"
 config.data_params.bucket_id = None
-config.data_params.path_to_splits = data_root
+config.data_params.path_to_splits = DATASET_PATH
 config.data_params.train_test_split_file = JSON_PATH
 
 # Load dataset
@@ -163,7 +157,7 @@ model = EDL_ML4FloodsModel(config.model_params, normalized_data=True)
 
 if config.model_params.get("pretrained_path", None):
     pretrained_path = config.model_params.get("pretrained_path", None)
-    loaded = torch.load(pretrained_path, map_location='cpu', weights_only=False)
+    loaded = torch.load(pretrained_path, map_location='cpu')
     
     if pretrained_path.endswith('.ckpt'):
         pretrained_dict = loaded.get('state_dict', loaded.get('model_state_dict', loaded))
@@ -226,8 +220,6 @@ else:
 # =============================================================================
 # Setup Trainer
 # =============================================================================
-use_gpu = config.gpus is not None
-
 trainer = Trainer(
     fast_dev_run=False,
     logger=wandb_logger,
@@ -236,8 +228,8 @@ trainer = Trainer(
     accumulate_grad_batches=1,
     gradient_clip_val=0.0,
     benchmark=False,
-    accelerator='gpu' if use_gpu else 'cpu',
-    devices=[int(config.gpus)] if use_gpu else 'auto',
+    accelerator='gpu' if config.gpus else 'cpu',
+    devices=[int(config.gpus)] if config.gpus else 'auto',
     max_epochs=config.model_params.hyperparameters.max_epochs,
     check_val_every_n_epoch=config.model_params.hyperparameters.val_every,
 )

@@ -1,9 +1,9 @@
 {
   "shared": {
-    "experiment_name": "WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_val",
+    "experiment_name": "edl20260602",
     "seed": 42,
     "model_params": {
-      "pretrained_path": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/WF2_unetv2_bgriswirs_uncertainty_cloud_pos_weight20_saved/checkpoint/epoch=17-step=18450.ckpt",
+      "pretrained_path": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/WF2_unetv2_bgriswirs/model.pt",
       "model_folder": "/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models",
       "model_version": "v2",
       "hyperparameters": {
@@ -17,7 +17,7 @@
         "pos_weight": [
           [
             1,
-            20
+            200
           ],
           [
             1,
@@ -38,6 +38,7 @@
         ],
         "model_type": "unet",
         "num_classes": 2,
+        "annealing_step": 10,
         "max_epochs": 30,
         "val_every": 1,
         "lr": 0.0001,
@@ -81,8 +82,8 @@
     },
     "resume_from_checkpoint": false,
     "gpus": 0,
-    "wandb_entity": "ml4floods",
-    "wandb_project": "ML4FloodsUncertainty_saveZarr"
+    "wandb_entity": "flood_uncertainty",
+    "wandb_project": "flood_uncertainty_edl"
   },
   "train": {
     "model_params": {}
