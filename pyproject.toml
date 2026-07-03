@@ -131,7 +131,6 @@ dependencies = [
     "requests-html==0.10.0",
     "requests-oauthlib==2.0.0",
     "rich==14.2.0",
-    "richdem==0.3.4",
     "rioxarray==0.19.0",
     "rsa==4.9.1",
     "safetensors==0.7.0",

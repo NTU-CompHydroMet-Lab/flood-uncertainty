@@ -1227,7 +1227,6 @@ dependencies = [
     { name = "requests-html" },
     { name = "requests-oauthlib" },
     { name = "rich" },
-    { name = "richdem" },
     { name = "rioxarray" },
     { name = "rsa" },
     { name = "safetensors" },
@@ -1400,7 +1399,6 @@ requires-dist = [
     { name = "requests-html", specifier = "==0.10.0" },
     { name = "requests-oauthlib", specifier = "==2.0.0" },
     { name = "rich", specifier = "==14.2.0" },
-    { name = "richdem", specifier = "==0.3.4" },
     { name = "rioxarray", specifier = "==0.19.0" },
     { name = "rsa", specifier = "==4.9.1" },
     { name = "safetensors", specifier = "==0.7.0" },
@@ -2174,15 +2172,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/fb/d2/8920e102050a0de7b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/25/7a/b0178788f8dc6cafce37a212c99565fa1fe7872c70c6c9c1e1a372d9d88f/rich-14.2.0-py3-none-any.whl", hash = "sha256:76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd", size = 243393, upload-time = "2025-10-09T14:16:51.245Z" },
 ]
-
-[[package]]
-name = "richdem"
-version = "0.3.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/20/8f/1fa0e1af7c4f0107305081513dae0234f327cbe5fc3a5db41d38915a2213/richdem-0.3.4.tar.gz", hash = "sha256:a9d3119ca8e25aa73039c94816f68ac2e1c33dc8ef02b0467c090d44243a7ad1", size = 329364, upload-time = "2018-07-13T20:03:49.648Z" }
 
 [[package]]
 name = "rioxarray"
