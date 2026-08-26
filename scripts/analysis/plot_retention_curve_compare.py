@@ -39,7 +39,7 @@ IOU_SUMMARY_PANELS = [
     {
         "title": "TOTAL",
         "series": [
-            {"model": "EDL", "variant": "dst", "label": "EDL DST-u", "marker": "D"},
+            {"model": "EDL", "variant": "dst", "label": "EDL DST", "marker": "D"},
             {"model": "EDL", "variant": "a+e", "label": "EDL"},
             {"model": "ensemble", "variant": "a+e", "label": "ensemble"},
             {"model": "mcdropout", "variant": "a+e", "label": "mcdropout"},
@@ -83,8 +83,8 @@ METHOD_IOU_CONFIGS = {
     "EDL": {
         "title": "EDL",
         "series": [
-            {"model": "EDL", "variant": "dst", "label": "DST-u"},
-            {"model": "EDL", "variant": "a+e", "label": "Total variance"},
+            {"model": "EDL", "variant": "dst", "label": "DST"},
+            {"model": "EDL", "variant": "a+e", "label": "Aleatoric + Epistemic"},
             {"model": "EDL", "variant": "aleatoric", "label": "Aleatoric"},
             {"model": "EDL", "variant": "epistemic", "label": "Epistemic"},
         ],
@@ -92,7 +92,7 @@ METHOD_IOU_CONFIGS = {
     "ensemble": {
         "title": "ensemble",
         "series": [
-            {"model": "ensemble", "variant": "a+e", "label": "Total variance"},
+            {"model": "ensemble", "variant": "a+e", "label": "Aleatoric + Epistemic"},
             {"model": "ensemble", "variant": "aleatoric", "label": "Aleatoric"},
             {"model": "ensemble", "variant": "epistemic", "label": "Epistemic"},
         ],
@@ -100,7 +100,7 @@ METHOD_IOU_CONFIGS = {
     "mcdropout": {
         "title": "mcdropout",
         "series": [
-            {"model": "mcdropout", "variant": "a+e", "label": "Total variance"},
+            {"model": "mcdropout", "variant": "a+e", "label": "Aleatoric + Epistemic"},
             {"model": "mcdropout", "variant": "aleatoric", "label": "Aleatoric"},
             {"model": "mcdropout", "variant": "epistemic", "label": "Epistemic"},
         ],
@@ -128,26 +128,26 @@ GROUP_CONFIGS = {
         ],
     },
     "combined": {
-        "title": "Retention Curve Comparison: DST-u vs Total variance",
-        "output_name": "retention_curve_compare_Total_Variance_vs_DST_Uncertainty.png",
+        "title": "Retention Curve Comparison: DST vs Aleatoric + Epistemic",
+        "output_name": "retention_curve_compare_Aleatoric_Plus_Epistemic_vs_DST_Uncertainty.png",
         "figsize": (15.8, 5.0),
         "series": [
-            {"model": "EDL", "variant": "dst", "label": "EDL DST-u"},
+            {"model": "EDL", "variant": "dst", "label": "EDL DST"},
             {
                 "model": "EDL",
                 "variant": "a+e",
-                "label": "EDL Total variance",
+                "label": "EDL Aleatoric + Epistemic",
                 "marker": "s",
             },
             {
                 "model": "ensemble",
                 "variant": "a+e",
-                "label": "ensemble Total variance",
+                "label": "ensemble Aleatoric + Epistemic",
             },
             {
                 "model": "mcdropout",
                 "variant": "a+e",
-                "label": "mcdropout Total variance",
+                "label": "mcdropout Aleatoric + Epistemic",
             },
         ],
     },
@@ -308,7 +308,7 @@ def build_iou_summary_legend_handles():
             markersize=6.2,
             markerfacecolor="white",
             markeredgewidth=1.3,
-            label="EDL DST-u",
+            label="EDL DST",
         ),
     ]
 

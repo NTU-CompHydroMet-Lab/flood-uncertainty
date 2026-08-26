@@ -224,7 +224,13 @@ def run_mcdropout_inference(
     return land_water_cloud, all_probs_flat, mean_prob, aleatoric_uncertainty, epistemic_uncertainty
 
 
-def load_model(config_path: str, model_type: str, collection_name: str = "S2", mode: str = "infer"):
+def load_model(
+    config_path: str,
+    model_type: str,
+    collection_name: str = "S2",
+    mode: str = "infer",
+    weights_path: str | None = None,
+):
     config = load_mode_config(config_path, mode=mode)
 
     if model_type == "EDL-SAR" or collection_name == "S1":
@@ -235,7 +241,7 @@ def load_model(config_path: str, model_type: str, collection_name: str = "S2", m
         print(f"channel configuration: {channel_configuration}")
     print(f"used channels: {channels}")
 
-    weights_path = config.model_params.get("pretrained_path")
+    weights_path = weights_path or config.model_params.get("pretrained_path")
     if weights_path is None:
         raise ValueError("pretrained_path not found in config.model_params")
     checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)

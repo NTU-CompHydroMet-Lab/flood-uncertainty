@@ -69,14 +69,14 @@ UNCERTAINTY_COORD_PAD = 7
 UNCERTAINTY_COLORBAR_FORMAT = "%.2f"
 UNCERTAINTY_ROW_COLORBAR_SIZE = "3.5%"
 UNCERTAINTY_ROW_COLORBAR_PAD = 0.04
-UNCERTAINTY_FIGURE_SIZE = (14.0, 19.2)
+UNCERTAINTY_FIGURE_SIZE = (14, 14.6)
 UNCERTAINTY_SUBPLOTS = {
     "left": 0.035,
     "right": 0.985,
     "top": 0.975,
     "bottom": 0.045,
     "wspace": 0.3,
-    "hspace": 0.1,
+    "hspace": 0.18,
 }
 UNCERTAINTY_CMAP = "Blues"
 UNCERTAINTY_INVALID_COLOR = "#d9d9d9"
@@ -404,16 +404,16 @@ def add_uncertainty_info_panel(ax):
     ax.axis("off")
     title_size = UNCERTAINTY_INFO_TITLE_FONTSIZE
     label_size = UNCERTAINTY_INFO_LABEL_FONTSIZE
-    box_x = 0.05
+    box_x = 0.15
     box_width = 0.11
     box_height = 0.07
     fp_y = 0.71
     fn_y = 0.57
     invalid_y = 0.43
-    text_x = 0.2
+    text_x = 0.3
 
     ax.text(
-        0.0,
+        0.10,
         0.94,
         "Error Overlay",
         transform=ax.transAxes,

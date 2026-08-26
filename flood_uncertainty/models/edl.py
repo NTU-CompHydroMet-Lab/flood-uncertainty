@@ -34,7 +34,12 @@ class EDL_ML4FloodsModel(pl.LightningModule):
 
         self.pos_weight = h_params_dict.get('pos_weight',
                                             [1 for i in range(self.num_class)])
-        self.weight_problem = [1 / self.num_class for _ in range(self.num_class)]
+        self.weight_problem = h_params_dict.get('weight_problem', [0.2, 0.8])
+        if len(self.weight_problem) != self.num_class:
+            raise ValueError("weight_problem must contain one weight per output task")
+        self.annealing_mode = h_params_dict.get('annealing_mode', 'fixed')
+        self.annealing_coefficient = h_params_dict.get('annealing_coefficient', 0.5)
+        self.annealing_step = h_params_dict.get('annealing_step', 10)
 
         # EDL beta分佈需要每個任務2個evidence通道，所以總共需要 2*n 個輸出通道
         num_output_channels = 2 * self.num_class
@@ -79,7 +84,9 @@ class EDL_ML4FloodsModel(pl.LightningModule):
                                                                   pos_weight_problem=self.pos_weight,
                                                                   weight_problem=self.weight_problem,
                                                                   epoch_num=self.current_epoch,
-                                                                  annealing_step=self.hparams["model_params"]["hyperparameters"]['annealing_step'])
+                                                                  annealing_step=self.annealing_step,
+                                                                  annealing_mode=self.annealing_mode,
+                                                                  annealing_coefficient=self.annealing_coefficient)
 
         if (batch_idx % 100) == 0:
             self.log("loss", loss)
@@ -441,7 +448,12 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
 
         self.pos_weight = h_params_dict.get('pos_weight',
                                             [1 for i in range(self.num_class)])
-        self.weight_problem = [1 / self.num_class for _ in range(self.num_class)]
+        self.weight_problem = h_params_dict.get('weight_problem', [1.0])
+        if len(self.weight_problem) != self.num_class:
+            raise ValueError("weight_problem must contain one weight per output task")
+        self.annealing_mode = h_params_dict.get('annealing_mode', 'fixed')
+        self.annealing_coefficient = h_params_dict.get('annealing_coefficient', 0.5)
+        self.annealing_step = h_params_dict.get('annealing_step', 10)
 
         # EDL beta分佈需要每個任務2個evidence通道，所以總共需要 2*n 個輸出通道
         num_output_channels = 2 * self.num_class
@@ -614,4 +626,3 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
         # Clear memory
         self.epoch_cms = {}
         
-

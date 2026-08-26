@@ -65,7 +65,34 @@ def loglikelihood_loss_weighted(y, alpha, class_weight=None, device=None):
     return loglikelihood
 
 
-def edl_mse_loss(y, alpha, epoch_num, num_classes, annealing_step, device=None, class_weight=None):
+def get_kl_annealing_coefficient(
+    epoch_num: int,
+    annealing_step: int,
+    annealing_mode: str = "linear",
+    annealing_coefficient: float = 0.5,
+) -> float:
+    """Return the configured KL multiplier.
+
+    ``fixed`` always returns ``annealing_coefficient``. ``linear`` increases
+    from zero to one as the epoch reaches ``annealing_step``.
+    """
+    if annealing_mode == "fixed":
+        if not 0.0 <= annealing_coefficient <= 1.0:
+            raise ValueError("annealing_coefficient must be between 0 and 1")
+        return float(annealing_coefficient)
+    if annealing_mode == "linear":
+        if annealing_step <= 0:
+            raise ValueError("annealing_step must be greater than 0 in linear mode")
+        return min(1.0, max(0.0, float(epoch_num) / annealing_step))
+    raise ValueError(
+        f"Unsupported annealing_mode: {annealing_mode!r}. Use 'fixed' or 'linear'."
+    )
+
+
+def edl_mse_loss(
+    y, alpha, epoch_num, num_classes, annealing_step, device=None,
+    class_weight=None, annealing_mode="linear", annealing_coefficient=0.5,
+):
     """Compute the mean squared error loss with KL divergence for Dirichlet distributions.
     
     Uses Cross Entropy style weighting similar to F.cross_entropy(weight=...):
@@ -92,9 +119,8 @@ def edl_mse_loss(y, alpha, epoch_num, num_classes, annealing_step, device=None, 
     
     loglikelihood = loglikelihood_loss_weighted(y, alpha, class_weight=class_weight, device=device)
     
-    annealing_coef = torch.min(
-        torch.tensor(1.0, dtype=torch.float32),
-        torch.tensor(epoch_num / annealing_step, dtype=torch.float32),
+    annealing_coef = get_kl_annealing_coefficient(
+        epoch_num, annealing_step, annealing_mode, annealing_coefficient
     )
 
     kl_alpha = (alpha - 1) * (1 - y) + 1
@@ -111,6 +137,8 @@ def edl_loss_flat(
     annealing_step: int,
     class_weight: Optional[torch.Tensor] = None,
     device: Optional[torch.device] = None,
+    annealing_mode: str = "linear",
+    annealing_coefficient: float = 0.5,
 ) -> torch.Tensor:
     """EDL MSE loss for pixel-wise prediction (Equation 9).
     
@@ -146,7 +174,11 @@ def edl_loss_flat(
     alpha_flat = alpha.reshape(-1, num_classes)  # (B*H*W, 2)
     target_flat = target_onehot.reshape(-1, num_classes)  # (B*H*W, 2)
     # 步驟 5: 計算 loss
-    loss_flat = edl_mse_loss(target_flat, alpha_flat, epoch_num, num_classes, annealing_step, device, class_weight=class_weight)  # (B*H*W, 1)
+    loss_flat = edl_mse_loss(
+        target_flat, alpha_flat, epoch_num, num_classes, annealing_step, device,
+        class_weight=class_weight, annealing_mode=annealing_mode,
+        annealing_coefficient=annealing_coefficient,
+    )  # (B*H*W, 1)
     # 步驟 6: 恢復形狀
     pixelwise_loss = loss_flat.reshape(B, H, W)  # (B, H, W)
     return pixelwise_loss
@@ -160,6 +192,8 @@ def beta_EDL_loss_mask_invalid(
     annealing_step: int = 10,
     class_weight: Optional[torch.Tensor] = None,
     ignore_index: int = -1,
+    annealing_mode: str = "linear",
+    annealing_coefficient: float = 0.5,
 ) -> torch.Tensor:
     """Masked EDL MSE loss (Equation 9) for single task.
 
@@ -191,6 +225,8 @@ def beta_EDL_loss_mask_invalid(
         annealing_step=annealing_step,
         class_weight=class_weight,
         device=logits.device,
+        annealing_mode=annealing_mode,
+        annealing_coefficient=annealing_coefficient,
     )
 
     # 使用 valid mask 過濾掉 invalid pixels (target == 0) 的 loss
@@ -205,6 +241,8 @@ def calc_edl_loss_multioutput_logistic_mask_invalid(
     weight_problem: Optional[List[float]] = None,
     epoch_num: int = 5,
     annealing_step: int = 10,
+    annealing_mode: str = "linear",
+    annealing_coefficient: float = 0.5,
 ) -> torch.Tensor:
     """Calculate the loss for multiple output tasks using EDL MSE loss with mask invalid pixels.
 
@@ -238,7 +276,12 @@ def calc_edl_loss_multioutput_logistic_mask_invalid(
             else None
         )
 
-        curr_loss = beta_EDL_loss_mask_invalid(task_logits, task_target, class_weight=class_weight, epoch_num=epoch_num, annealing_step=annealing_step)
+        curr_loss = beta_EDL_loss_mask_invalid(
+            task_logits, task_target, class_weight=class_weight,
+            epoch_num=epoch_num, annealing_step=annealing_step,
+            annealing_mode=annealing_mode,
+            annealing_coefficient=annealing_coefficient,
+        )
 
         total_loss += curr_loss * weight_problem[i]
 

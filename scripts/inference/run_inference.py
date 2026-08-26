@@ -140,6 +140,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", choices=["EDL", "v2"], default=CONFIG["model_type"])
     parser.add_argument("--config_edl", default=CONFIG["config_path_EDL"])
     parser.add_argument("--config_v2", default=CONFIG["config_path_v2"])
+    parser.add_argument(
+        "--checkpoint",
+        default=None,
+        help="Override model_params.pretrained_path (for example, the selected EDL checkpoint).",
+    )
     parser.add_argument("--data_root", default=None)
     parser.add_argument("--output_dir", default=CONFIG["output_dir"])
     parser.add_argument("--subsets", default=",".join(CONFIG["subsets"]))
@@ -186,6 +191,7 @@ if __name__ == "__main__":
         config_path=config_path,
         model_type=model_type,
         mode="infer",
+        weights_path=args.checkpoint,
     )
     data_root = args.data_root or config.data_params.path_to_splits
     CONFIG["data_root"] = data_root

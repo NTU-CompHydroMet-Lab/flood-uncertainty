@@ -212,3 +212,4 @@ artifacts/
 wandb/
 
 *.ckpt
+batch_plot.png

@@ -34,6 +34,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
 parser.add_argument("--mode", default="train", choices=["train", "validate_only"])
 parser.add_argument("--data_root", default=None)
+parser.add_argument(
+    "--resume_ckpt",
+    default=None,
+    help="Lightning checkpoint to resume from (restores epoch, optimizer, and scheduler).",
+)
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode=args.mode)
 data_root = args.data_root or config.data_params.path_to_splits
@@ -212,7 +217,7 @@ print(f"The trained model will be stored in {config.model_params.model_folder}/{
 # =============================================================================
 # Setup Weights and Biases Logger
 # =============================================================================
-setup_weights_and_biases = True
+setup_weights_and_biases = False
 if setup_weights_and_biases:
     # UNCOMMENT ON FIRST RUN TO LOGIN TO Weights and Biases (only needs to be done once)
     # wandb.login()
@@ -246,6 +251,14 @@ trainer = Trainer(
 # Training
 # =============================================================================
 if not config.model_params.get("val_only", False):
-    trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    trainer.fit(
+        model,
+        train_dataloaders=train_dl,
+        val_dataloaders=val_dl,
+        ckpt_path=args.resume_ckpt,
+        # This is a trusted checkpoint produced by this training script. Lightning
+        # checkpoints contain optimizer/config objects in addition to tensor weights.
+        weights_only=False if args.resume_ckpt else None,
+    )
 else:
     trainer.validate(model, val_dl)
