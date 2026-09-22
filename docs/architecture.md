@@ -132,12 +132,11 @@ classDiagram
 
 - `EDL_SAR_Unet` 重新宣告了幾乎全部父類屬性。正常繼承下子類應只列新增成員（此處實際新增的只有 `epoch_cms` 與 `num_channels`），屬性重複代表初始化邏輯是複製而非透過 `super().__init__()` 取得。
 - `zarr_*` 六個屬性與 `_init_zarr_structure()` / `_append_batch_to_zarr()` 佔了模型類別相當比例。這是結果寫入器的職責被放進模型類別，可抽成獨立元件並以 Lightning callback 掛載，ensemble／MC dropout 亦可重用。
-- `network` 的推斷型別是四個具體類別的聯集，代表 backbone 由 `ml4floods.configure_architecture()` 動態決定，沒有共同抽象介面。引入新 backbone（見 [`foundation_model_integration_plan.md`](./foundation_model_integration_plan.md)）時需先確立這層介面契約。
+- `network` 的推斷型別是四個具體類別的聯集，代表 backbone 由 `ml4floods.configure_architecture()` 動態決定，沒有共同抽象介面。引入新 backbone（見 [`foundation_model_integration.md`](./foundation_model_integration.md)）時需先確立這層介面契約。
 
 ---
 
 ## 3. 相關文件
 
 - [`BEF_integration_plan.md`](./BEF_integration_plan.md)：BEF 融合方法
-- [`foundation_model_integration_plan.md`](./foundation_model_integration_plan.md)：基礎模型骨幹整合決策
-- [`foundation_model_integration_walkthrough.md`](./foundation_model_integration_walkthrough.md)：新元件的放置位置與資料流
+- [`foundation_model_integration.md`](./foundation_model_integration.md)：基礎模型骨幹整合（決策、落點、里程碑、風險）
