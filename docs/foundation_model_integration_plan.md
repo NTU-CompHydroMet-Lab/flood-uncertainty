@@ -10,6 +10,9 @@
 >
 > 若要看「新元件放在專案哪個位置、與既有元件如何銜接」的流程解說，請參考
 > [`foundation_model_integration_walkthrough.md`](./foundation_model_integration_walkthrough.md)。
+>
+> 若要 3 分鐘內抓到工程實踐 TL;DR（介面契約、風險對應、里程碑一覽），請參考
+> [`foundation_model_engineering_brief.md`](./foundation_model_engineering_brief.md)。
 
 ---
 
