@@ -7,6 +7,9 @@
 > **本文件不涉及不確定性方法**。骨幹輸出的 pyramid feature 是通用介面，
 > 可餵給既有 EDL、baseline segmentation、或另一份文件描述的 BEF 融合方法，
 > 兩件工作可獨立進行。
+>
+> 若要看「新元件放在專案哪個位置、與既有元件如何銜接」的流程解說，請參考
+> [`foundation_model_integration_walkthrough.md`](./foundation_model_integration_walkthrough.md)。
 
 ---
 
