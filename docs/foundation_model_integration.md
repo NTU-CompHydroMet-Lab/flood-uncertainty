@@ -27,10 +27,14 @@ TerraMind 進來只多出「**一顆骨幹、一支 script、一份 config**」�
 
 工作量約 2.5–3 天 + 完整訓練時間。
 
+**本階段不引入抽象介面層**：config 指定 model_type、model 類別內直接建構
+TerraMindBackbone，與既有四種方法的作法一致（見 §3）。`BackboneProtocol` 列為保留的
+優化方向（§3.2），等到有第二顆骨幹實作或 BEF 雙塔上線時再做。
+
 > **實務原則**：關鍵不是「引入 TerraMind」，而是**引入時只切最小介面**。常見錯誤是
-> 「用什麼就繼承什麼」，導致專案結構被外部框架綁架、換掉時要動半個 codebase。此處
-> `BackboneProtocol` 只有兩個屬性 + 一個函式，是能想像的最小約束——介面越薄，上下游
-> 各自的實作自由度越高，換元件成本越低。
+> 「用什麼就繼承什麼」，導致專案結構被外部框架綁架、換掉時要動半個 codebase。
+> 即使暫不定義 Protocol，仍照「輸入 dict、輸出 pyramid list、暴露 out_channels」的
+> 形狀寫——省掉的是一個檔案，不是設計。
 
 ---
 
@@ -53,7 +57,8 @@ TerraMind 進來只多出「**一顆骨幹、一支 script、一份 config**」�
 |---|---|---|
 | 引入方式 | `terratorch` 加為 uv 依賴，**僅呼叫其 backbone factory** | 避免自行重寫 HuggingFace 權重載入邏輯 |
 | 不採用範圍 | 不繼承 `SemanticSegmentationTask`、不用 registry、不用 YAML CLI | 保留專案 script + JSON 慣例，避免雙頭馬車 |
-| 骨幹包裝形式 | 純 `nn.Module`，輸入 `dict[str, Tensor]`，輸出 pyramid feature list | 通用介面，任何下游 decoder 皆可接 |
+| 骨幹包裝形式 | 純 `nn.Module`，輸入 `dict[str, Tensor]`，輸出 pyramid feature list | 通用形狀，任何下游 decoder 皆可接 |
+| 抽象介面層 | **本階段不做**。model 類別內直接建構骨幹，由 config 指定 | 只有一顆骨幹實作時，Protocol 沒有對象可抽象；見 §3.2 的觸發條件 |
 | 模態支援 | 首階段 `S2L2A` 與 `S1GRD` 各自獨立骨幹（不共用權重） | 對齊 TerraMind 預訓習慣，下游若需獨立塔亦適用 |
 | 離線權重 | 支援 `backbone_local_ckpt` 設定 | 訓練節點無網路時可用 |
 | 預設輸出層 | `select_indices = [2, 5, 8, 11]` | 對齊 TerraMind base 常見 UNet decoder 配置 |
@@ -62,29 +67,69 @@ TerraMind 進來只多出「**一顆骨幹、一支 script、一份 config**」�
 
 ---
 
-## 3. 介面契約：對外的唯一握手
+## 3. 骨幹的建構方式：config 指定，模型直接建構
 
-任何實作於 `flood_uncertainty/models/backbones/` 底下的骨幹須符合：
+**目前採用直接建構**，不引入抽象介面層。`FMBaselineSegModel.__init__` 從 config 讀
+`backbone_*` 欄位，直接 `TerraMindBackbone(...)`：
+
+```python
+class FMBaselineSegModel(pl.LightningModule):
+    def __init__(self, model_params):
+        h = model_params["hyperparameters"]
+        self.backbone = TerraMindBackbone(
+            variant         = h["backbone"],                 # "terramind_v1_base"
+            modalities      = tuple(h["backbone_modalities"]),
+            pretrained      = h["backbone_pretrained"],
+            local_ckpt_path = h["backbone_local_ckpt"],
+            select_layers   = tuple(h["backbone_select_layers"]),
+            freeze          = h["backbone_freeze"],
+        )
+        self.decoder = UNetDecoder(in_channels=self.backbone.out_channels)
+        self.head    = Conv1x1(h["num_classes"])
+```
+
+選擇哪顆骨幹由 config 的 `model_type` 決定、由 script 的 dispatch 選到對應的 model 類別
+（見 §8、§9），與既有 `v2` / `EDL` / `ensemble` / `dropout` 的作法完全一致——不新增機制。
+
+### 3.1 唯一要求：骨幹暴露兩個屬性
+
+即使不定義 Protocol，`TerraMindBackbone` **仍須提供**：
+
+```python
+out_channels: list[int]        # 每層 pyramid 的 channel 數，例如 [96, 192, 384, 768]
+downsample_ratios: list[int]   # 每層相對原圖的下採樣倍數，例如 [4, 8, 16, 32]
+```
+
+這不是為了契約，是 decoder 的實際需求。沒有這兩個屬性，替代方案只有硬編通道數，或
+在 `__init__` 裡跑一次 dummy forward 去試探——兩者都更糟。
+
+`downsample_ratios` 特別容易被忽略：TerraMind 是 ViT，各層可能同解析度（`[16,16,16,16]`），
+與 CNN 骨幹的 `[4,8,16,32]` 模式不同。decoder 需要它才能安排正確的上採樣層數。這也直接
+對應風險登記第 4 條（token → image reshape 順序）。
+
+### 3.2 保留的優化方向：`BackboneProtocol`
+
+**暫不實作**，但記錄於此作為後續方向。當出現以下任一情況時再回頭做：
+
+- 需要第二顆骨幹實作（例如換 Prithvi / SatMAE，或改造 HRNet 暴露其既有 pyramid）
+- BEF 雙塔上線，`models/bef.py` 需要注入兩顆可替換的骨幹
+- 想讓既有 `EDL_ML4FloodsModel` 也能吃 FM 骨幹
+
+屆時新增 `flood_uncertainty/models/backbones/base.py`：
 
 ```python
 class BackboneProtocol(Protocol):
-    def __call__(self, image_dict: dict[str, Tensor]) -> list[Tensor]:
-        """
-        input:  image_dict — key 為模態名稱（"S2L2A"、"S1GRD"），value shape (B, C, H, W)
-        output: list[Tensor] — pyramid feature，通常 4 層
-        """
-
-    out_channels: list[int]        # 每層 pyramid 的 channel 數
-    downsample_ratios: list[int]   # 每層相對原圖的下採樣倍數
+    def __call__(self, image_dict: dict[str, Tensor]) -> list[Tensor]: ...
+    out_channels: list[int]
+    downsample_ratios: list[int]
 ```
 
-- **輸入 dict**：讓多模態（S2L2A、S1GRD、未來其他）自然擴展
-- **輸出 pyramid**：讓下游 decoder 用 `out_channels` 自動配置，不需硬編通道數
+**遷移成本接近零**——`Protocol` 是結構型別（structural typing），實作端不需要繼承它。
+只要 §3.1 的兩個屬性與 §5 的 `dict → list[Tensor]` 呼叫慣例有守住，`TerraMindBackbone`
+寫好的當下就已經滿足這份契約，補上 `base.py` 只是讓 mypy / pyright 能檢查而已。
 
-**契約不含**預訓權重載入方式、模態組合限制、tokenizer 設計——這些是實作細節。
-
-換 TerraMind 為 Prithvi / SatMAE，只需在 `models/backbones/` 新增一份符合契約的實作，
-下游任務零改動。
+> **因此本階段的紀律**：實作可以先不要抽象，但**呼叫慣例要照契約的形狀寫**。
+> 省掉的是一個檔案，不是設計。
 
 ---
 
@@ -96,8 +141,8 @@ flood-uncertainty/
 │   ├── models/
 │   │   ├── backbones/                       ← 【新增】子套件
 │   │   │   ├── __init__.py
-│   │   │   ├── base.py                      ← BackboneProtocol 介面契約
 │   │   │   └── terramind_backbone.py        ← TerraMind 包裝
+│   │   │       （base.py / BackboneProtocol 暫不建立，見 §3.2）
 │   │   ├── fm_baseline.py                   ← 【新增】TerraMind + UNet decoder + head
 │   │   ├── edl.py                           ← 不動
 │   │   └── ...                              ← 不動
@@ -138,7 +183,7 @@ class FMBaselineSegModel(pl.LightningModule):
             modalities=("S2L2A",),                  # 單模態，簡化 baseline
         )
         self.decoder = UNetDecoder(
-            in_channels=self.backbone.out_channels, # 用契約暴露的屬性自動配置
+            in_channels=self.backbone.out_channels, # 用骨幹暴露的屬性自動配置
         )
         self.head = Conv1x1(num_classes)
         self.loss = nn.CrossEntropyLoss(ignore_index=0)   # 對齊專案 label 慣例
@@ -274,8 +319,12 @@ model = BEF_ML4FloodsModel(
 )
 ```
 
-**注入即握手**——FM 側只負責造出符合 `BackboneProtocol` 的模組，BEF 側只負責拿進來用。
-兩邊在時間軸上獨立完成，最後在 `scripts/train/train_bef.py` 組裝時才碰面。
+**注入即握手**——FM 側只負責造出一顆吃 dict、吐 pyramid list、暴露 `out_channels` 的
+`nn.Module`，BEF 側只負責拿進來用。兩邊在時間軸上獨立完成，最後在
+`scripts/train/train_bef.py` 組裝時才碰面。
+
+BEF 雙塔是 §3.2 列出的觸發條件之一：屆時有兩顆骨幹實例（S1 / S2）、且可能想替換骨幹
+種類，這時補上 `BackboneProtocol` 才有實際對象可抽象。
 
 詳見 [`BEF_integration_plan.md`](./BEF_integration_plan.md)。
 
@@ -293,7 +342,7 @@ F1 依賴解析 ─▶ F2 骨幹包裝 ─▶ F3 離線權重接口 ─▶ F4 ba
 | 里程碑 | 交付內容 | 驗證方式 | 估算 |
 |---|---|---|---|
 | **F1** | `pyproject.toml` 加 terratorch + `uv sync` 成功 | `uv run python -c "import terratorch"` 通過 | 0.5 天 |
-| **F2** | `backbones/base.py` + `terramind_backbone.py` | CPU dummy input → pyramid shape 正確；屬性合理 | 1 天 |
+| **F2** | `backbones/terramind_backbone.py` | CPU dummy input → pyramid shape 正確；`out_channels` / `downsample_ratios` 與實際輸出一致 | 1 天 |
 | **F3** | 離線 ckpt 路徑接口 | 給定假 ckpt 路徑檢查跳過 HF 下載 | 0.5 天 |
 | **F4** | `models/fm_baseline.py` + smoke | `pytest tests/test_fm_baseline_smoke.py` 一輪 forward + backward | 0.5 天 |
 | **F5** | `fm_baseline.json` + `train_fm_baseline.py` + smoke | `SMOKE_TRAIN_MODEL=FM_BASELINE` 跑 1 epoch | 0.5 天 |
@@ -312,6 +361,7 @@ F1–F5 可完全不觸及不確定性、融合、多任務等議題。
 |---|---|---|
 | 1 | `terratorch` 與現有 `ml4floods` / `lightning` 版本衝突 | F1 前先 `uv add --dry-run`；必要時鎖 `lightning` 版本 |
 | 2 | HuggingFace 權重於訓練節點下載失敗 | `backbone_local_ckpt` 接口於 F2 就定義並測試 |
+| 2b | 暫不抽象介面，日後補 Protocol 時發現呼叫慣例已走樣 | F2 測試斷言 `out_channels` / `downsample_ratios` 與實際輸出一致，鎖住形狀 |
 | 3 | TerraMind base 骨幹顯存壓力（尤其 BEF 雙塔） | `freeze=True`、`precision: bf16-mixed`、小 batch、gradient checkpointing |
 | 4 | Token → image reshape 座標順序錯誤 | F2 dummy input 測試檢查空間 anchor（左上像素 ↔ 左上 token） |
 | 5 | Baseline mIoU 明顯低於 v2 | 檢查三件事：(a) 波段順序是否符合 TerraMind L2A 預期 (b) 正規化統計 (c) `select_layers` 是否合理 |
