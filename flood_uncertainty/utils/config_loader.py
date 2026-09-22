@@ -55,9 +55,16 @@ def _normalize_and_validate(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     hyperparameters["channel_configuration"] = channel_cfg
     data_params["channel_configuration"] = channel_cfg
 
-    num_channels = len(CHANNELS_CONFIGURATIONS[channel_cfg])
-    if data_params.get("add_mndwi_input", False):
-        num_channels += 1
+    if channel_cfg == "sar":
+        num_channels = data_params.get(
+            "num_channels", hyperparameters.get("num_channels", 2)
+        )
+        if not isinstance(num_channels, int) or num_channels < 2:
+            raise ValueError("SAR num_channels must be an integer >= 2")
+    else:
+        num_channels = len(CHANNELS_CONFIGURATIONS[channel_cfg])
+        if data_params.get("add_mndwi_input", False):
+            num_channels += 1
     hyperparameters["num_channels"] = num_channels
 
     return config_dict

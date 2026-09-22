@@ -55,8 +55,8 @@
         "test": false
       },
       "bucket_id": "",
-      "path_to_splits": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data",
-      "train_test_split_file": "/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data/train_test_split_from_csv.json",
+      "path_to_splits": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/data/worldfloods_v2/data",
+      "train_test_split_file": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/data/worldfloods_v2/data/train_test_split_from_csv.json",
       "input_folder": "S2",
       "target_folder": "gt",
       "batch_size": 64,

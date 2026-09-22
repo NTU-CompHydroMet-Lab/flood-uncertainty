@@ -213,3 +213,7 @@ wandb/
 
 *.ckpt
 batch_plot.png
+session_progress_report.txt
+repository_structure_report.txt
+
+scripts/tests/*
