@@ -186,7 +186,7 @@ Vendor 內容與上游差異：`terramind_vit.py` 拿掉 tokenizer（只有 LULC
 |---|---|---|
 | `zarr` 套件缺失 | `validate_only` 模式的 zarr dump（`EDL_ML4FloodsModel._append_batch_to_zarr`，TerraMind 版繼承同一段）需要 `zarr`，但它不在 `pyproject.toml`。訓練與驗證指標不受影響 | `uv add zarr`（獨立於本次變更，需另行決定版本） |
 | `configurations/edl.json` 路徑 | `pretrained_path` 與 `data_params` 指向 `chlunchen-10030`，本機不存在；`SMOKE_TRAIN_MODEL=EDL` 直接跑會 `FileNotFoundError` | 屬既有 config 的機器綁定問題；本次未改動它。baseline UNet 權重在 `/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/WF2_unetv2_bgriswirs/model.pt` 可用 |
-| 完整訓練尚未執行 | 本次只做到里程碑 F5（smoke）；F6（全量訓練、與 EDL-UNet baseline 比 mIoU / 校準）需 GPU 時數 | `uv run python scripts/train/train_edl_terramind.py --mode train`（config 預設 30 epoch、batch 16）。建議先試 `backbone_freeze: true` 與 `false` 各一組 |
+| 完整訓練（F6）已完成 2026-09-29 | 凍結 encoder 兩組（decoder 隨機 / WF2 初始化）各 30 epoch，與 EDL baseline 在 val/test 整圖推論 + retention/PAvPU 比較，結果與結論見 `edl_vs_terramind_comparison.md`。解凍 encoder（D 組）尚未跑 | `uv run python scripts/train/train_edl_terramind.py --mode train`（config 預設 30 epoch、batch 16）。建議先試 `backbone_freeze: true` 與 `false` 各一組 |
 | `batch_size` / 精度 | ViT-B/16 在 256² 用 fp32、batch 16 預估 < 10 GB；若 OOM，降 batch 或在 Trainer 加 `precision="bf16-mixed"`（腳本刻意與 `train_edl.py` 同步，未加此參數） | 視實際顯存調整 config |
 | `scripts/analysis/*` 未接 | analysis 腳本（`analysis_S2.py`、`compute_pavpu.py`、各 `plot_*_compare.py`）每支都有自己的 model_type 字典（名稱、顏色、檔名後綴、uncertainty band 清單），未加入 `EDL-TERRAMIND` | 有完整訓練結果要做比較圖時再逐支加；輸出 band 與 EDL 相同，可直接沿用 EDL 的 band 清單 |
 | `BackboneProtocol` | 仍照計畫 §3.2 暫不建立；`TerraMindBackbone` 已符合其形狀 | 有第二顆骨幹時再補 |
