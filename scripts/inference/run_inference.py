@@ -30,7 +30,7 @@ from georeader.geotensor import GeoTensor
 # 2. CONFIGURATION
 # ========================================
 CONFIG = {
-    "model_type": "v2",           # "EDL" 或 "v2"
+    "model_type": "v2",           # "EDL" / "EDL-TERRAMIND" / "v2"
     "input_type": "S2",            # "S2" 或 "L8"
     "output_dir": os.path.join(project_root, "artifacts", "results", "val_test_inference"),
     "subsets": ["val", "test"],    # 要處理的資料集
@@ -40,6 +40,7 @@ CONFIG = {
     "th_water": 0.5,               # 水體閾值
     "max_tile_size": 1024,
     "config_path_EDL": os.path.join(project_root, "configurations", "edl.json"),
+    "config_path_EDL_TERRAMIND": os.path.join(project_root, "configurations", "edl_terramind.json"),
     "config_path_v2": os.path.join(project_root, "configurations", "v2.json")
 }
 
@@ -137,8 +138,9 @@ def process_single_file(
 # ========================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_type", choices=["EDL", "v2"], default=CONFIG["model_type"])
+    parser.add_argument("--model_type", choices=["EDL", "EDL-TERRAMIND", "v2"], default=CONFIG["model_type"])
     parser.add_argument("--config_edl", default=CONFIG["config_path_EDL"])
+    parser.add_argument("--config_edl_terramind", default=CONFIG["config_path_EDL_TERRAMIND"])
     parser.add_argument("--config_v2", default=CONFIG["config_path_v2"])
     parser.add_argument(
         "--checkpoint",
@@ -156,6 +158,7 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
     CONFIG["model_type"] = args.model_type
     CONFIG["config_path_EDL"] = args.config_edl
+    CONFIG["config_path_EDL_TERRAMIND"] = args.config_edl_terramind
     CONFIG["config_path_v2"] = args.config_v2
     CONFIG["output_dir"] = args.output_dir
     CONFIG["save_plot"] = args.save_plot
@@ -184,6 +187,8 @@ if __name__ == "__main__":
     print("Loading model...")
     if model_type == "EDL":
         config_path = CONFIG["config_path_EDL"]
+    elif model_type == "EDL-TERRAMIND":
+        config_path = CONFIG["config_path_EDL_TERRAMIND"]
     else:
         config_path = CONFIG["config_path_v2"]
     
@@ -199,7 +204,7 @@ if __name__ == "__main__":
         model, config,
         max_tile_size=CONFIG["max_tile_size"],
         apply_normalization=True,
-        used_EDL=(model_type == "EDL"),
+        used_EDL=(model_type in ("EDL", "EDL-TERRAMIND")),
         th_water=th_water,
         th_brightness=3500,
         distinguish_flood_traces=True
