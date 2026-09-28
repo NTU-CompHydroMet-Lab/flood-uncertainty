@@ -83,3 +83,11 @@ def test_optimizer_drops_frozen_backbone():
     n_enc = sum(p.numel() for p in model.network.backbone.encoder.parameters())
     n_opt = sum(p.numel() for g in opt.param_groups for p in g["params"])
     assert n_opt < n_enc  # decoder + pyramid only
+
+
+def test_forward_accepts_sizes_not_divisible_by_patch():
+    """Inference tiles are arbitrary sizes; the model pads to the ViT patch grid and crops back."""
+    model = EDL_TerraMind_ML4FloodsModel(_model_params(), normalized_data=True)
+    with torch.no_grad():
+        out = model(torch.randn(1, 6, 45, 70))
+    assert out.shape == (1, 4, 45, 70)

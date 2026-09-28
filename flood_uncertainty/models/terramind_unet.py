@@ -60,24 +60,33 @@ class TerraMindUNet(nn.Module):
         self.conv_last = nn.Conv2d(skip[0], n_class, kernel_size=1)
 
     @staticmethod
-    def _up(x: torch.Tensor) -> torch.Tensor:
-        return F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=True)
+    def _up(x: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
+        # Resize to the skip's exact size rather than x2: the stride-32 level is a max-pool of the
+        # stride-16 grid and floors odd sizes (e.g. 3x5 -> 1x2), so x2 would not line up.
+        return F.interpolate(x, size=like.shape[-2:], mode="bilinear", align_corners=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, _, h, w = x.shape
+        # The ViT needs H, W divisible by the patch size. The CNN UNet only needed multiples of 8,
+        # which ml4floods' tiling guarantees via SUBSAMPLE_MODULE; it knows nothing about this
+        # model_type, so pad here (reflection, bottom/right) and crop the output back to (h, w).
+        p = self.backbone.patch_size
+        pad_h, pad_w = (-h) % p, (-w) % p
+        if pad_h or pad_w:
+            x = F.pad(x, (0, pad_w, 0, pad_h), mode="reflect")
         feats = self.backbone({self.modality: x})  # the one translation line (plan §5)
         c1, c2, c3, c4 = [lat(f) for lat, f in zip(self.lateral, feats)]  # strides 4, 8, 16, 32
 
-        y = torch.cat([self._up(c4), c3], dim=1)
+        y = torch.cat([self._up(c4, c3), c3], dim=1)
         y = self.dconv_up3(y)
-        y = torch.cat([self._up(y), c2], dim=1)
+        y = torch.cat([self._up(y, c2), c2], dim=1)
         y = self.dconv_up2(y)
-        y = torch.cat([self._up(y), c1], dim=1)
+        y = torch.cat([self._up(y, c1), c1], dim=1)
         y = self.dconv_up1(y)  # stride 4
 
-        y = F.interpolate(y, size=(h, w), mode="bilinear", align_corners=True)
+        y = F.interpolate(y, size=(h + pad_h, w + pad_w), mode="bilinear", align_corners=True)
         y = self.dconv_full(y)
-        return self.conv_last(y)
+        return self.conv_last(y)[:, :, :h, :w]
 
 
 def build_terramind_unet(h_params: Dict, n_class: int) -> TerraMindUNet:
