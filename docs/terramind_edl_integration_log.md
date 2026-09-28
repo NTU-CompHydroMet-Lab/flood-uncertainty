@@ -110,6 +110,20 @@ Adam 兩個 param group：decoder/head 用 `lr`，encoder 用 `lr * backbone_lr_
 `backbone_freeze=true` 時 encoder 參數不進 optimizer，且 `train()` 時 encoder 維持 eval mode。
 scheduler / monitor 與父類相同（`ReduceLROnPlateau` on `val_bce_land_water`）。
 
+### 3.8 訓練 log：W&B offline + CSV（2026-09-28 追加）
+
+`train_edl.py` 把 `setup_weights_and_biases = False` 寫死，`Trainer(logger=None)` 只留下 Lightning 預設的
+`CSVLogger`（`lightning_logs/version_N/metrics.csv`），`self.log_images` 的影像永遠不會送出，config 的
+`wandb_project` 是死欄位。`train_edl_terramind.py` 改成：
+
+- `config.shared.wandb_mode`：`"offline"`（預設）| `"online"` | `"disabled"`，env `WANDB_MODE` 可覆寫。
+- `offline` 不需登入、不連網，run 寫在 `{model_folder}/{experiment_name}/wandb/offline-run-*`
+  （`save_dir=experiment_path`，不再污染 repo root 的 `wandb/`），之後 `wandb sync <該目錄>` 即可上傳。
+- 不論 W&B 模式都額外掛 `CSVLogger`，`metrics.csv` 照舊存在；`logger=[wandb, csv]` 順序固定 wandb 在前，
+  因為 `EDL_ML4FloodsModel` 用 `isinstance(self.logger, WandbLogger)` 決定要不要記影像，而 `self.logger`
+  在多 logger 時回傳第一個。
+- `train_edl.py` 未動；要讓 baseline 同步只需把同一段搬過去。
+
 ### 3.7 依賴：為何最終 **vendor** TerraMind 而不是 `uv add terratorch`
 
 計畫 §6 指定「terratorch 加為 uv 依賴、只呼叫其 backbone factory」，並在風險 #1 要求動手前 dry-run。實測結果：
@@ -157,6 +171,7 @@ Vendor 內容與上游差異：`terramind_vit.py` 拿掉 tokenizer（只有 LULC
 | 6 | `--mode validate_only`（用第 5 項的 `last.ckpt` 當 `pretrained_path`） | `uv run python scripts/train/train_edl_terramind.py --config <smoke cfg> --mode validate_only --data_root artifacts/smoke/train/data_min` | 權重 154/154 載入、validation 跑完；**zarr 寫出失敗**：`ModuleNotFoundError: No module named 'zarr'`。`zarr` 不在 `pyproject.toml`，`train_edl.py` 走同一段繼承程式碼會一樣失敗 → 既有問題，非本次引入（見 §6） |
 | 8 | 推論 + 評估 smoke（README 4.3/4.4 流程，用第 5 項的 `last.ckpt`） | `SMOKE_INFER_MODEL_TYPE=EDL-TERRAMIND SMOKE_INFER_CHECKPOINT=<last.ckpt> SMOKE_INFER_DATA_ROOT=artifacts/smoke/train/data_min bash scripts/smoke/smoke_infer_eval.sh` | **SMOKE PASS**：整張 val tile 推論（tile 非 16 倍數，由 §3.5b 的 padding 處理）、`*_output_EDL-TERRAMIND.tif` 與 `metrics_EDL-TERRAMIND.csv` 寫出。第一次跑時分別卡在 tiling 尺寸與 `segmentation.py` 的 model_type 分派，修正後通過 |
 | 9 | 既有 EDL 推論 + 評估回歸（改過的 infer/eval 腳本） | `SMOKE_INFER_MODEL_TYPE=EDL ...` | SMOKE PASS |
+| 10 | 訓練 log（§3.8）：W&B offline + CSV | `bash scripts/smoke/smoke_train_edl_terramind.sh` | **SMOKE TRAIN PASS**（600 steps / 31 s）。`{exp}/wandb/offline-run-20260928_172421-*/`（含 `media/`，影像有記）、`{exp}/lightning_logs/version_0/metrics.csv` 兩者皆產生；repo root `wandb/` 無新 run |
 | 7 | 既有 EDL 管線回歸（同環境、同 mini dataset） | `uv run python scripts/train/train_edl.py --config <edl smoke cfg, pretrained_path=null> --mode train --data_root artifacts/smoke/train/data_min` | 通過：600 steps / 22 s，exit 0。既有 UNet-EDL 管線在同一環境、同一 mini dataset 下正常（環境與依賴未變，屬預期） |
 
 第 4 項腳本：建 `TerraMindBackbone(channel_configuration="bgriswirs", pretrained=True)`，

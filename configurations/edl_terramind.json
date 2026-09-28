@@ -107,7 +107,8 @@
     "resume_from_checkpoint": false,
     "gpus": 0,
     "wandb_entity": "flood_uncertainty",
-    "wandb_project": "flood_uncertainty_edl_terramind"
+    "wandb_project": "flood_uncertainty_edl_terramind",
+    "wandb_mode": "offline"
   },
   "train": {
     "model_params": {}

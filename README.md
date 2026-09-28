@@ -39,6 +39,9 @@ uv run python scripts/train/train_ensemble.py --config configurations/ensemble.j
 uv run python scripts/train/train_edl_terramind.py --config configurations/edl_terramind.json --mode train   # EDL + TerraMind v1 encoder
 ```
 
+EDL-TERRAMIND 訓練 log 預設走 **W&B offline**（`wandb_mode` in config，或 `WANDB_MODE=online|offline|disabled` 覆寫），
+run 與 `metrics.csv` 都在 `artifacts/models/<experiment_name>/`，事後上傳：`wandb sync artifacts/models/<experiment_name>/wandb/offline-run-*`。
+
 可選覆寫資料根目錄：
 
 ```bash

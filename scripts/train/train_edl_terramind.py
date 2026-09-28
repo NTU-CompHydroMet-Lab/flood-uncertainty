@@ -223,18 +223,36 @@ callbacks = [checkpoint_callback, early_stop_callback]
 print(f"The trained model will be stored in {config.model_params.model_folder}/{config.experiment_name}")
 
 # =============================================================================
-# Setup Weights and Biases Logger
+# Setup loggers (W&B offline by default + CSV)
+#
+# Differs from train_edl.py (hard-coded ``setup_weights_and_biases = False``):
+#   * ``wandb_mode`` in config.shared ("offline" | "online" | "disabled"),
+#     overridable by the env var ``WANDB_MODE``. Default "offline" -> no login,
+#     no network; run is written to ``{experiment_path}/wandb/offline-run-*``
+#     and can be uploaded later with ``wandb sync <that dir>``.
+#   * A CSVLogger is always attached so ``lightning_logs/version_N/metrics.csv``
+#     keeps existing regardless of W&B.
+#   * WandbLogger is first in the list: ``self.logger`` inside the LightningModule
+#     resolves to loggers[0], and EDL_ML4FloodsModel only logs images when that
+#     is a WandbLogger.
 # =============================================================================
-setup_weights_and_biases = False
-if setup_weights_and_biases:
-    # UNCOMMENT ON FIRST RUN TO LOGIN TO Weights and Biases (only needs to be done once)
-    # wandb.login()
+from pytorch_lightning.loggers import CSVLogger
+
+wandb_mode = os.environ.get("WANDB_MODE") or config.get("wandb_mode", "offline")
+if wandb_mode not in ("offline", "online", "disabled"):
+    raise ValueError(f"wandb_mode must be offline|online|disabled, got {wandb_mode!r}")
+
+loggers = []
+if wandb_mode != "disabled":
     wandb_logger = WandbLogger(
         name=config.experiment_name,
         project=config.wandb_project,
+        save_dir=experiment_path,          # -> {experiment_path}/wandb/
+        offline=(wandb_mode == "offline"),
     )
-else:
-    wandb_logger = None
+    loggers.append(wandb_logger)
+loggers.append(CSVLogger(save_dir=experiment_path, name="lightning_logs"))
+print(f"wandb_mode={wandb_mode}; loggers={[type(l).__name__ for l in loggers]}")
 
 # =============================================================================
 # Setup Trainer
@@ -243,7 +261,7 @@ use_gpu = config.gpus is not None
 
 trainer = Trainer(
     fast_dev_run=False,
-    logger=wandb_logger,
+    logger=loggers,
     callbacks=callbacks,
     default_root_dir=f"{config.model_params.model_folder}/{config.experiment_name}",
     accumulate_grad_batches=1,
