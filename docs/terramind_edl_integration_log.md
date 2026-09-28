@@ -174,3 +174,54 @@ SMOKE_TRAIN_MODEL=EDL_TERRAMIND SMOKE_TRAIN_SOURCE_DATA_ROOT=/home/NAS/house/ycc
 uv run python scripts/train/train_edl_terramind.py --config configurations/edl_terramind.json --mode train
 uv run python scripts/train/train_edl_terramind.py --config configurations/edl_terramind.json --mode validate_only
 ```
+
+---
+
+## 7. Python 3.11 升級實驗（branch `exp/py311-terratorch`）
+
+目的：驗證「升到 3.11 後直接用 terratorch」是否可行，並用它反向驗證 vendored 的 encoder 沒抄壞。
+所有步驟都在獨立環境 `/opt/venv311` 與獨立 git worktree 進行，正式的 3.10 環境與 feature branch 不受影響。
+
+### 7.1 相依性可解性（`uv lock --dry-run`，不安裝）
+
+| 變體 | requires-python | 結果 |
+|---|---|---|
+| A | `>=3.11,<3.12`，其餘 pin 不動 | 可解（170 packages） |
+| B | A + numpy 2.2.6 + safetensors 0.8.0 + terratorch | 可解：terratorch **1.2.11**、torchgeo 0.8.1，新增 31 個套件 |
+| C | `>=3.12,<3.13` + 同 B | 可解：terratorch **1.2.13**、torchgeo 0.9.0 |
+
+只有 numpy 與 safetensors 兩個既有 pin 需要動；torch 2.10.0、pytorch-lightning 2.6.0、timm 1.0.24 全部維持。
+terratorch 1.2.12+ 需要 torchgeo ≥ 0.9 → Python ≥ 3.12，所以 3.11 只能到 1.2.11。
+
+### 7.2 環境建置
+
+`UV_PROJECT_ENVIRONMENT=/opt/venv311 uv sync --python 3.11`（變體 B），8.8 GB。
+Python 3.11.14 / numpy 2.2.6 / torch 2.10.0+cu128 / terratorch 1.2.11 / torchgeo 0.8.1 / pytorch-lightning 2.6.0，CUDA 可用。
+
+### 7.3 程式碼變更
+
+`TerraMindBackbone` 新增 `impl` 參數（config `backbone_impl`）：`"vendored"`（預設）或 `"terratorch"`（走 `BACKBONE_REGISTRY.build`）。
+只有 `_build_terramind_encoder` 一個函式分岔。
+
+### 7.4 驗證結果
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | 3.11 pytest | **23 passed**（3.10 下 22 passed + 1 skipped，skip 的就是下一項） |
+| 2 | vendored vs terratorch 等價測試 | 同一份 HF 權重：encoder `state_dict` 逐 key `torch.equal`；12 層 encoder 輸出 `allclose(atol=1e-5)` → vendored 版與上游數值一致 |
+| 3 | `backbone_impl: terratorch` smoke train（GPU） | PASS，600 steps / 27 s，`val_bce_land_water` 0.210，checkpoint 已存 |
+| 4 | 既有 UNet-EDL 在 3.11 + numpy 2 的回歸 smoke | PASS，600 steps，無 numpy 相關警告（僅 lightning `LeafSpec` deprecation，與 numpy 無關） |
+| 5 | 正式 3.10 環境 | 重建後 pytest 21 passed |
+
+### 7.5 結論與建議
+
+- 技術上**可以升 3.11**：既有 pin 幾乎不用動，既有管線在 numpy 2 下 smoke 通過，terratorch 可直接用。
+- 但升版是影響所有人環境的變更，建議依多人協作流程走：獨立的 `chore: Python 3.11` PR（只動 `pyproject.toml` / `uv.lock` / README），先開 issue 讓正在跑實驗的人表態，CI 跑 3.10 與 3.11 矩陣後再 merge。
+- 在那之前，feature branch 維持 3.10 + vendored 預設；`backbone_impl` 開關讓升版後切回 terratorch 只需改 config，vendored 目錄屆時可整包移除。
+- 若要一步到位用最新 terratorch（1.2.13），需要 3.12（變體 C 已確認可解，未實際建置）。
+
+### 7.6 插曲：`/opt/venv` 被重建
+
+實驗途中，主 checkout 帶著 3.11 的 `pyproject.toml` 時執行了 `uv run`，uv 判定 `/opt/venv` 的 3.10 直譯器不符 `requires-python`，將其砍掉重建為空的 3.11 環境。
+`/opt/venv` 在容器 overlay 層、非 volume，本來就是每個容器各自一份，所以不影響他人；已用 feature branch 的 `uv.lock` 重建回 3.10。
+教訓：不同 Python 版本的實驗一律用獨立 git worktree + 明確的 `UV_PROJECT_ENVIRONMENT`，主 checkout 不切到改過 `requires-python` 的 branch。
