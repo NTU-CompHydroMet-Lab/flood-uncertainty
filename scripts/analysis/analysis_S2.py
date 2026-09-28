@@ -102,6 +102,10 @@ SELECTED_CRITERIA = {
     "mcdropout": ["Water_Aleatoric", "Water_Epistemic", "Water_Aleatoric_Plus_Epistemic"],
 }
 
+# EDL-TERRAMIND shares the EDL output TIF layout (same EDL inference/eval code path)
+CRITERIA_MENU["EDL-TERRAMIND"] = CRITERIA_MENU["EDL"]
+SELECTED_CRITERIA["EDL-TERRAMIND"] = SELECTED_CRITERIA["EDL"]
+
 CONFIG = {
     "model_type":      "EDL",   # ← 切換此處："EDL" "ensemble" 或 "mcdropout"
     "subset":          "test",
@@ -116,7 +120,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Compute retention curves from confusion maps and prediction outputs."
     )
-    parser.add_argument("--model-type", choices=["EDL", "ensemble", "mcdropout"], default=CONFIG["model_type"])
+    parser.add_argument("--model-type", choices=["EDL", "EDL-TERRAMIND", "ensemble", "mcdropout"], default=CONFIG["model_type"])
     parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"])
     parser.add_argument("--pred-root", default=CONFIG["pred_root"])
     parser.add_argument("--output-dir", default=CONFIG["base_output_dir"])

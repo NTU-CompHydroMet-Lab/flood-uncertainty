@@ -10,6 +10,7 @@ SUBSET="${SMOKE_INFER_SUBSET:-val}"
 MAX_FILES="${SMOKE_INFER_MAX_FILES:-1}"
 OUTPUT_DIR="${SMOKE_INFER_OUTPUT_DIR:-$PROJECT_ROOT/artifacts/results/val_test_inference}"
 DATA_ROOT="${SMOKE_INFER_DATA_ROOT:-}"
+CHECKPOINT="${SMOKE_INFER_CHECKPOINT:-}"   # optional: overrides model_params.pretrained_path
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv not found in PATH"
   exit 1
@@ -24,8 +25,12 @@ case "$MODEL_TYPE" in
     CONFIG_PATH="${CONFIG_PATH:-configurations/edl.json}"
     INFER_MODEL_ARGS=(--model_type EDL --config_edl "$CONFIG_PATH")
     ;;
+  EDL-TERRAMIND)
+    CONFIG_PATH="${CONFIG_PATH:-configurations/edl_terramind.json}"
+    INFER_MODEL_ARGS=(--model_type EDL-TERRAMIND --config_edl_terramind "$CONFIG_PATH")
+    ;;
   *)
-    echo "Unsupported SMOKE_INFER_MODEL_TYPE: $MODEL_TYPE (allowed: v2, EDL)"
+    echo "Unsupported SMOKE_INFER_MODEL_TYPE: $MODEL_TYPE (allowed: v2, EDL, EDL-TERRAMIND)"
     exit 1
     ;;
 esac
@@ -40,6 +45,9 @@ INFER_ARGS=(
 )
 if [[ -n "$DATA_ROOT" ]]; then
   INFER_ARGS+=(--data_root "$DATA_ROOT")
+fi
+if [[ -n "$CHECKPOINT" ]]; then
+  INFER_ARGS+=(--checkpoint "$CHECKPOINT")
 fi
 
 EVAL_ARGS=(

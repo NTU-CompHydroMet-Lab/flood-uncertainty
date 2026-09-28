@@ -10,7 +10,7 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-MODEL="${SMOKE_TRAIN_MODEL:-v2}" # v2 | EDL | dropout
+MODEL="${SMOKE_TRAIN_MODEL:-v2}" # v2 | EDL | dropout | EDL_TERRAMIND
 SOURCE_DATA_ROOT="${SMOKE_TRAIN_SOURCE_DATA_ROOT:-/home/NAS/homes/cjchen-10025/data/worldfloods_v2/data}"
 WORK_ROOT="${SMOKE_TRAIN_WORK_ROOT:-$PROJECT_ROOT/artifacts/smoke/train}"
 MINI_DATA_ROOT="${SMOKE_TRAIN_DATA_ROOT:-$WORK_ROOT/data_min}"
@@ -36,12 +36,16 @@ case "$MODEL" in
     BASE_CONFIG="configurations/dropout.json"
     TRAIN_SCRIPT="scripts/train/train_dropout.py"
     ;;
+  EDL_TERRAMIND)
+    BASE_CONFIG="configurations/edl_terramind.json"
+    TRAIN_SCRIPT="scripts/train/train_edl_terramind.py"
+    ;;
   ensemble)
     echo "SMOKE_TRAIN_MODEL=ensemble is not supported in smoke_train.sh (train script loops 20 models)."
     exit 1
     ;;
   *)
-    echo "Unsupported SMOKE_TRAIN_MODEL: $MODEL (allowed: v2, EDL, dropout)"
+    echo "Unsupported SMOKE_TRAIN_MODEL: $MODEL (allowed: v2, EDL, dropout, EDL_TERRAMIND)"
     exit 1
     ;;
 esac
