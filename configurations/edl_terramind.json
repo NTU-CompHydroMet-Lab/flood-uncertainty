@@ -49,6 +49,7 @@
         "early_stopping_patience": 50,
         "num_channels": 6,
         "backbone": "terramind_v1_base",
+        "backbone_impl": "vendored",
         "backbone_modalities": [
           "S2L2A"
         ],

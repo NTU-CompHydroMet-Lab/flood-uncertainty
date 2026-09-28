@@ -191,20 +191,25 @@ class LearnedInterpolateToPyramidal(nn.Module):
 # --------------------------------------------------------------------------- #
 
 
+BACKBONE_IMPLS = ("vendored", "terratorch")
+
+
 def _build_terramind_encoder(
     variant: str,
     modalities: Sequence[str],
     bands: Optional[Dict[str, List[str]]],
     pretrained: bool,
     local_ckpt_path: Optional[str],
+    impl: str = "vendored",
 ) -> nn.Module:
-    """The single place that touches the (vendored) TerraMind factory.
+    """The single place that touches a TerraMind factory.
 
-    Equivalent to ``terratorch.registry.BACKBONE_REGISTRY.build(variant, ...)``;
-    swapping back to terratorch later means changing only this function.
+    ``impl="vendored"`` uses ``backbones/terramind_vendored`` (works on the
+    project's Python 3.10 lock). ``impl="terratorch"`` calls
+    ``terratorch.registry.BACKBONE_REGISTRY.build`` and requires a terratorch
+    install (Python >= 3.11); it exists so the two can be compared and so the
+    vendored copy can be dropped once the project moves off 3.10.
     """
-    from flood_uncertainty.models.backbones.terramind_vendored import build_terramind_vit
-
     kwargs = dict(modalities=list(modalities), merge_method="mean")
     if bands is not None:
         kwargs["bands"] = bands
@@ -214,7 +219,21 @@ def _build_terramind_encoder(
         kwargs["pretrained"] = False
     else:
         kwargs["pretrained"] = pretrained
-    return build_terramind_vit(variant, **kwargs)
+
+    if impl == "vendored":
+        from flood_uncertainty.models.backbones.terramind_vendored import build_terramind_vit
+
+        return build_terramind_vit(variant, **kwargs)
+    if impl == "terratorch":
+        try:
+            from terratorch.registry import BACKBONE_REGISTRY
+        except ImportError as e:  # pragma: no cover - environment, not a code path
+            raise ImportError(
+                "backbone_impl='terratorch' needs terratorch (Python >= 3.11); "
+                "use backbone_impl='vendored' on the 3.10 lock."
+            ) from e
+        return BACKBONE_REGISTRY.build(variant, **kwargs)
+    raise ValueError(f"Unknown backbone impl '{impl}' (expected 'vendored' or 'terratorch')")
 
 
 class TerraMindBackbone(nn.Module):
@@ -233,6 +252,8 @@ class TerraMindBackbone(nn.Module):
         freeze: set ``requires_grad=False`` on every encoder parameter.
         renormalize_input: apply :class:`InputRenormalizer` (S2L2A only).
         patch_size: TerraMind patch size (16 for v1).
+        impl: ``"vendored"`` (default) or ``"terratorch"``; see :func:`_build_terramind_encoder`.
+        impl: ``"vendored"`` (default) or ``"terratorch"``; see :func:`_build_terramind_encoder`.
     """
 
     def __init__(
@@ -247,6 +268,7 @@ class TerraMindBackbone(nn.Module):
         freeze: bool = False,
         renormalize_input: bool = True,
         patch_size: int = 16,
+        impl: str = "vendored",
     ):
         super().__init__()
         if len(modalities) != 1:
@@ -275,7 +297,9 @@ class TerraMindBackbone(nn.Module):
             bands={self.modality: band_list} if band_list is not None else None,
             pretrained=pretrained,
             local_ckpt_path=local_ckpt_path,
+            impl=impl,
         )
+        self.impl = impl
         enc_channels = list(self.encoder.out_channels)  # one entry per encoder block
         if max(self.select_layers) >= len(enc_channels):
             raise ValueError(f"select_layers {self.select_layers} out of range for {len(enc_channels)} blocks")

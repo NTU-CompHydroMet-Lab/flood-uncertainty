@@ -157,3 +157,56 @@ def test_local_ckpt_path_skips_huggingface_download(tmp_path, monkeypatch):
     with torch.no_grad():
         out = bb({"S2L2A": torch.randn(1, 6, 32, 32)})
     assert out[0].shape == (1, 768, 8, 8)
+
+
+# --------------------------------------------------------------------------- #
+# Vendored vs terratorch equivalence (only when terratorch is installed)
+# --------------------------------------------------------------------------- #
+
+
+def test_vendored_matches_terratorch_with_pretrained_weights():
+    pytest.importorskip("terratorch")
+    torch.manual_seed(0)
+    kw = dict(channel_configuration="bgriswirs", pretrained=True, renormalize_input=False)
+    a = TerraMindBackbone(impl="vendored", **kw).eval()
+    b = TerraMindBackbone(impl="terratorch", **kw).eval()
+    # pyramid heads are randomly initialised per instance: copy them so only the encoder differs
+    b.pyramid.load_state_dict(a.pyramid.state_dict())
+    sa, sb = a.encoder.state_dict(), b.encoder.state_dict()
+    assert sa.keys() == sb.keys()
+    assert all(torch.equal(sa[k], sb[k]) for k in sa)
+    x = torch.randn(1, 6, 64, 64)
+    with torch.no_grad():
+        fa, fb = a({"S2L2A": x}), b({"S2L2A": x})
+    for u, v in zip(fa, fb):
+        assert torch.allclose(u, v, atol=1e-5)
+
+
+def test_unknown_impl_is_rejected():
+    with pytest.raises(ValueError, match="backbone impl"):
+        TerraMindBackbone(channel_configuration="bgriswirs", pretrained=False, impl="nope")
+
+
+# --------------------------------------------------------------------------- #
+# Vendored vs terratorch (only runs where terratorch is installed, i.e. Python >= 3.11)
+# --------------------------------------------------------------------------- #
+
+
+def test_vendored_matches_terratorch_with_pretrained_weights():
+    pytest.importorskip("terratorch")
+    try:
+        a = TerraMindBackbone(channel_configuration="bgriswirs", pretrained=True, impl="vendored")
+        b = TerraMindBackbone(channel_configuration="bgriswirs", pretrained=True, impl="terratorch")
+    except Exception as e:  # no HF cache / no network
+        pytest.skip(f"pretrained weights unavailable: {e}")
+    # identical encoder state
+    sa, sb = a.encoder.state_dict(), b.encoder.state_dict()
+    assert sa.keys() == sb.keys()
+    assert all(torch.equal(sa[k], sb[k]) for k in sa)
+    # identical encoder outputs (pyramid heads are randomly initialised, so compare before them)
+    x = torch.randn(1, 6, 64, 64)
+    with torch.no_grad():
+        ta = a.encoder({"S2L2A": x})
+        tb = b.encoder({"S2L2A": x})
+    assert len(ta) == len(tb) == 12
+    assert all(torch.allclose(u, v, atol=1e-5) for u, v in zip(ta, tb))
