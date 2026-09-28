@@ -45,6 +45,12 @@
 | 檔案 | 修改 | 理由 |
 |---|---|---|
 | `scripts/smoke/smoke_train.sh` | `case` 新增 `EDL_TERRAMIND)` 分支（4 行）與註解 | 計畫 §8 指定沿用既有 dispatch |
+| `flood_uncertainty/inference/infer.py` | `load_model` 新增 `model_type == "EDL-TERRAMIND"` 分支（+import） | 讓 README 4.3 的推論入口能載入 TerraMind checkpoint |
+| `scripts/inference/run_inference.py` | `--model_type` 加 `EDL-TERRAMIND`、新增 `--config_edl_terramind`、`used_EDL` 判斷涵蓋新型別 | 同上 |
+| `scripts/eval/eval_metrics.py` | `--model_type` 加 `EDL-TERRAMIND`、`MODEL_CONFIG_PATHS` 加對應 config | README 4.4 評估入口 |
+| `flood_uncertainty/metrics/segmentation.py` | `plot_spatial_confusion_matrix` 的 band 分派把 `EDL-TERRAMIND` 視同 `EDL`（1 行） | 輸出 band 佈局與 EDL 完全相同 |
+| `scripts/smoke/smoke_infer_eval.sh` | `case` 新增 `EDL-TERRAMIND)`；新增可選 `SMOKE_INFER_CHECKPOINT` 傳給 `--checkpoint` | 對齊 smoke 慣例 |
+| `README.md` | 各段補上 EDL-TERRAMIND 的訓練 / 推論 / 評估 / smoke 指令，新增 §7 簡介 | 文件同步 |
 
 ### 不動的檔案
 
@@ -89,6 +95,14 @@ TerraMind 是 ViT-B/16：12 層、全部 stride 16、768 維。取第 `[2, 5, 8,
 `[64, 128, 256, 512]`——與 ml4floods `UNet` 的 skip 寬度相同，decoder 容量對齊 baseline。
 CNN UNet 的第一層 skip 在 stride 1，ViT 版最淺只到 stride 4，故 decoder 尾端多一段
 bilinear ×4 + `double_conv(64, 64)` 回到全解析度。
+
+### 3.5b 任意尺寸輸入（推論 tiling）
+
+ml4floods 的推論 tiling 只對 `SUBSAMPLE_MODULE` 裡的 `unet` / `unet_dropout` 做 8 的倍數 padding，
+不認識新 model_type，所以整張影像切出的 tile 尺寸不保證是 16 的倍數。`TerraMindUNet.forward`
+自己以 reflection pad 補到 patch grid，輸出再裁回原尺寸；decoder 的上採樣改成對齊 skip 的實際尺寸
+（stride-32 層是 max-pool，奇數 grid 會取 floor，×2 對不上）。有單元測試 `45×70 → 45×70`。
+`ml4floods/**` 不動。
 
 ### 3.6 Optimizer
 
@@ -141,6 +155,8 @@ Vendor 內容與上游差異：`terramind_vit.py` 拿掉 tokenizer（只有 LULC
 | 4 | 真實權重載入（HF cache，`HF_HUB_OFFLINE=1`） | 見下 | encoder 113/113 個 key 來自 checkpoint；`encoder.0.attn.qkv.weight` 與 ckpt 完全相等；patch embedding 6 波段子集 ＝ ckpt 第 `[1,2,3,7,10,11]` 欄；256×256 輸入 → pyramid `(768,64²),(768,32²),(768,16²),(768,8²)`；可訓練參數 93.2M |
 | 5 | Smoke train（GPU, 1 epoch, 1 tile/split, batch 2） | `SMOKE_TRAIN_GPUS=0 SMOKE_TRAIN_BATCH_SIZE=2 bash scripts/smoke/smoke_train_edl_terramind.sh` | **SMOKE TRAIN PASS**：600 steps / 32 s（19 it/s，RTX 3080，顯存 2.6 GB）；`epoch=0-step=600.ckpt` 與 `last.ckpt` 寫入 `artifacts/models/smoke/edl_terramind_v1_base_bgriswirs_smoke_20260928_140050/`；1 tile 訓練後 land/water recall 1.0、precision 0.018（僅管線檢查） |
 | 6 | `--mode validate_only`（用第 5 項的 `last.ckpt` 當 `pretrained_path`） | `uv run python scripts/train/train_edl_terramind.py --config <smoke cfg> --mode validate_only --data_root artifacts/smoke/train/data_min` | 權重 154/154 載入、validation 跑完；**zarr 寫出失敗**：`ModuleNotFoundError: No module named 'zarr'`。`zarr` 不在 `pyproject.toml`，`train_edl.py` 走同一段繼承程式碼會一樣失敗 → 既有問題，非本次引入（見 §6） |
+| 8 | 推論 + 評估 smoke（README 4.3/4.4 流程，用第 5 項的 `last.ckpt`） | `SMOKE_INFER_MODEL_TYPE=EDL-TERRAMIND SMOKE_INFER_CHECKPOINT=<last.ckpt> SMOKE_INFER_DATA_ROOT=artifacts/smoke/train/data_min bash scripts/smoke/smoke_infer_eval.sh` | **SMOKE PASS**：整張 val tile 推論（tile 非 16 倍數，由 §3.5b 的 padding 處理）、`*_output_EDL-TERRAMIND.tif` 與 `metrics_EDL-TERRAMIND.csv` 寫出。第一次跑時分別卡在 tiling 尺寸與 `segmentation.py` 的 model_type 分派，修正後通過 |
+| 9 | 既有 EDL 推論 + 評估回歸（改過的 infer/eval 腳本） | `SMOKE_INFER_MODEL_TYPE=EDL ...` | SMOKE PASS |
 | 7 | 既有 EDL 管線回歸（同環境、同 mini dataset） | `uv run python scripts/train/train_edl.py --config <edl smoke cfg, pretrained_path=null> --mode train --data_root artifacts/smoke/train/data_min` | 通過：600 steps / 22 s，exit 0。既有 UNet-EDL 管線在同一環境、同一 mini dataset 下正常（環境與依賴未變，屬預期） |
 
 第 4 項腳本：建 `TerraMindBackbone(channel_configuration="bgriswirs", pretrained=True)`，
@@ -157,6 +173,7 @@ Vendor 內容與上游差異：`terramind_vit.py` 拿掉 tokenizer（只有 LULC
 | `configurations/edl.json` 路徑 | `pretrained_path` 與 `data_params` 指向 `chlunchen-10030`，本機不存在；`SMOKE_TRAIN_MODEL=EDL` 直接跑會 `FileNotFoundError` | 屬既有 config 的機器綁定問題；本次未改動它。baseline UNet 權重在 `/home/NAS/homes/cjchen-10025/flood-uncertainty/artifacts/models/WF2_unetv2_bgriswirs/model.pt` 可用 |
 | 完整訓練尚未執行 | 本次只做到里程碑 F5（smoke）；F6（全量訓練、與 EDL-UNet baseline 比 mIoU / 校準）需 GPU 時數 | `uv run python scripts/train/train_edl_terramind.py --mode train`（config 預設 30 epoch、batch 16）。建議先試 `backbone_freeze: true` 與 `false` 各一組 |
 | `batch_size` / 精度 | ViT-B/16 在 256² 用 fp32、batch 16 預估 < 10 GB；若 OOM，降 batch 或在 Trainer 加 `precision="bf16-mixed"`（腳本刻意與 `train_edl.py` 同步，未加此參數） | 視實際顯存調整 config |
+| `scripts/analysis/*` 未接 | analysis 腳本（`analysis_S2.py`、`compute_pavpu.py`、各 `plot_*_compare.py`）每支都有自己的 model_type 字典（名稱、顏色、檔名後綴、uncertainty band 清單），未加入 `EDL-TERRAMIND` | 有完整訓練結果要做比較圖時再逐支加；輸出 band 與 EDL 相同，可直接沿用 EDL 的 band 清單 |
 | `BackboneProtocol` | 仍照計畫 §3.2 暫不建立；`TerraMindBackbone` 已符合其形狀 | 有第二顆骨幹時再補 |
 
 ### 如何執行

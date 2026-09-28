@@ -1,6 +1,6 @@
 # flood-uncertainty
 
-Flood segmentation uncertainty 專案（`v2` / `EDL` / `ensemble` / `MC dropout`）。
+Flood segmentation uncertainty 專案（`v2` / `EDL` / `ensemble` / `MC dropout` / `EDL-TERRAMIND`）。
 
 ## 1. 專案結構
 
@@ -36,6 +36,7 @@ uv run python scripts/train/train_v2.py --config configurations/v2.json --mode t
 uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train
 uv run python scripts/train/train_dropout.py --config configurations/dropout.json --mode train
 uv run python scripts/train/train_ensemble.py --config configurations/ensemble.json --mode train
+uv run python scripts/train/train_edl_terramind.py --config configurations/edl_terramind.json --mode train   # EDL + TerraMind v1 encoder
 ```
 
 可選覆寫資料根目錄：
@@ -55,6 +56,7 @@ uv run python scripts/train/train_edl.py --config configurations/edl.json --mode
 ```bash
 uv run python scripts/inference/run_inference.py --model_type v2 --config_v2 configurations/v2.json
 uv run python scripts/inference/run_inference.py --model_type EDL --config_edl configurations/edl.json
+uv run python scripts/inference/run_inference.py --model_type EDL-TERRAMIND --config_edl_terramind configurations/edl_terramind.json --checkpoint /path/to/last.ckpt
 uv run python scripts/inference/run_inference_ensemble.py --mode ensemble --config configurations/ensemble.json
 uv run python scripts/inference/run_inference_ensemble.py --mode mcdropout --config configurations/dropout.json
 ```
@@ -64,6 +66,7 @@ uv run python scripts/inference/run_inference_ensemble.py --mode mcdropout --con
 ```bash
 uv run python scripts/eval/eval_metrics.py --model_type v2 --subset val
 uv run python scripts/eval/eval_metrics.py --model_type EDL --subset val
+uv run python scripts/eval/eval_metrics.py --model_type EDL-TERRAMIND --subset val
 ```
 
 ## 5. Smoke Scripts
@@ -80,6 +83,8 @@ bash scripts/smoke/smoke_all.sh
 ```bash
 SMOKE_INFER_MODEL_TYPE=EDL SMOKE_INFER_SUBSET=val SMOKE_INFER_MAX_FILES=1 bash scripts/smoke/smoke_infer_eval.sh
 SMOKE_TRAIN_MODEL=v2 bash scripts/smoke/smoke_train.sh
+SMOKE_TRAIN_MODEL=EDL_TERRAMIND bash scripts/smoke/smoke_train.sh          # 或 bash scripts/smoke/smoke_train_edl_terramind.sh
+SMOKE_INFER_MODEL_TYPE=EDL-TERRAMIND SMOKE_INFER_CHECKPOINT=/path/to/last.ckpt bash scripts/smoke/smoke_infer_eval.sh
 SMOKE_ANALYSIS_MODEL_TYPE=EDL SMOKE_ANALYSIS_PREPARE_INFER=1 SMOKE_ANALYSIS_MAX_FILES=1 bash scripts/smoke/smoke_analysis.sh
 SMOKE_ALL_RUN_TRAIN=0 bash scripts/smoke/smoke_all.sh
 ```
@@ -121,7 +126,14 @@ ANALYSIS_ENV_FILE=/path/to/analysis.env bash scripts/analysis/run_all_analysis.s
 
 `artifacts/results/analysis_S2/logs/`
 
-## 7. 路徑說明
+## 7. TerraMind encoder（EDL-TERRAMIND）
+
+`EDL_TerraMind_ML4FloodsModel` 用 TerraMind v1 base（ViT-B/16）取代 EDL 模型的 UNet encoder，decoder / EDL head / loss 不變。
+encoder 原始碼 vendor 自 terratorch 1.2.11（`flood_uncertainty/models/backbones/terramind_vendored/`，Apache-2.0），
+權重由 `huggingface_hub` 取得（`ibm-esa-geospatial/TerraMind-1.0-base`）。config 欄位 `backbone_*` 說明與設計理由見
+`docs/terramind_edl_integration_log.md`；整合計畫見 `docs/foundation_model_integration.md`。
+
+## 8. 路徑說明
 
 - 資料根目錄：預設由 config 的 `data_params.path_to_splits` 決定（可用 `--data_root` 覆寫）
 - 推論與評估輸出：預設寫到 `artifacts/results/val_test_inference`
