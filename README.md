@@ -36,6 +36,7 @@ uv run python scripts/train/train_v2.py --config configurations/v2.json --mode t
 uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train
 uv run python scripts/train/train_dropout.py --config configurations/dropout.json --mode train
 uv run python scripts/train/train_ensemble.py --config configurations/ensemble.json --mode train
+uv run python scripts/train/train_edl_sar.py --config configurations/edl_sar.json --mode train
 uv run python scripts/train/train_edl_terramind.py --config configurations/edl_terramind.json --mode train   # EDL + TerraMind v1 encoder
 ```
 
@@ -56,13 +57,20 @@ uv run python scripts/train/train_edl.py --config configurations/edl.json --mode
 
 ### 4.3 推論
 
+以下指令從專案根目錄執行。EDL 使用 EpochKL epoch 8（測試指定的 trusted checkpoint）；權重不隨 Git 提供，請先自行放到 `--checkpoint` 指定的路徑。
+
 ```bash
 uv run python scripts/inference/run_inference.py --model_type v2 --config_v2 configurations/v2.json
-uv run python scripts/inference/run_inference.py --model_type EDL --config_edl configurations/edl.json
+uv run python scripts/inference/run_inference.py \
+  --model_type EDL \
+  --config_edl configurations/edl.json \
+  --checkpoint artifacts/models/edl_EpochKL_20260819/checkpoint/epoch=8-step=9225.ckpt
 uv run python scripts/inference/run_inference.py --model_type EDL-TERRAMIND --config_edl_terramind configurations/edl_terramind.json --checkpoint /path/to/last.ckpt
 uv run python scripts/inference/run_inference_ensemble.py --mode ensemble --config configurations/ensemble.json
 uv run python scripts/inference/run_inference_ensemble.py --mode mcdropout --config configurations/dropout.json
+uv run python scripts/inference/run_inference_sar.py input.tif output.tif --config configurations/edl_sar.json --weights /path/to/sar.ckpt
 ```
+如果需要實際權重路徑，請洽jerrychlun
 
 ### 4.4 評估
 
@@ -92,9 +100,55 @@ SMOKE_ANALYSIS_MODEL_TYPE=EDL SMOKE_ANALYSIS_PREPARE_INFER=1 SMOKE_ANALYSIS_MAX_
 SMOKE_ALL_RUN_TRAIN=0 bash scripts/smoke/smoke_all.sh
 ```
 
-## 6. Analysis 指令
+## 6. Tests
 
-### 6.1 單支執行
+### 6.1 執行測試
+
+執行全部專案測試：
+
+```bash
+uv run python -m pytest -c pyproject.toml -q tests
+```
+
+只執行 optical EDL numerical regression tests：
+
+```bash
+uv run python -m pytest -c pyproject.toml -q tests/test_optical_regression.py
+```
+
+Optical regression tests 使用以下 trusted checkpoint：
+
+```text
+artifacts/models/edl_EpochKL_20260819/checkpoint/epoch=8-step=9225.ckpt
+```
+
+測試包含：
+
+- Fixed-checkpoint inference regression：使用固定 synthetic optical tensor 執行正式 inference pipeline，比較 classification mask、probability、evidence、DST uncertainty、aleatoric uncertainty 與 epistemic uncertainty。
+- Fixed-batch training-step regression：還原固定 model checkpoint 與 Adam optimizer state，在固定 synthetic optical batch 上執行一次 forward、EDL loss、backward 與 optimizer update，再比較 loss、gradient 與更新後 logits。
+
+若 trusted checkpoint 不存在，optical regression tests 會顯示為 skipped。Checkpoint 不會複製到 Git repository。
+
+### 6.2 更新 optical regression baseline
+
+目前保存的 numerical baseline 位於：
+
+```text
+tests/fixtures/optical_edl_epoch8_regression.pt
+```
+
+只有在確認模型的新計算行為正確、並且決定接受該變更後，才可重新產生 baseline：
+
+```bash
+uv run python scripts/tests/generate_optical_regression_baseline.py
+uv run python -m pytest -c pyproject.toml -q tests/test_optical_regression.py
+```
+
+不要在一般 pytest 執行過程中自動更新 baseline，否則錯誤結果可能被接受為新的標準。重新產生後應檢查程式變更原因、baseline diff，並重新執行 regression tests。
+
+## 7. Analysis 指令
+
+### 7.1 單支執行
 
 ```bash
 uv run python scripts/analysis/analysis_S2.py --model-type EDL --subset val --max-files 1
@@ -103,7 +157,7 @@ uv run python scripts/analysis/plot_retention_curve_compare.py --group all
 uv run python scripts/analysis/plot_epistemic_fp_fn_compare.py --subset val --max-files 1
 ```
 
-### 6.2 一鍵執行全部 analysis（含時間與步驟提示）
+### 7.2 一鍵執行全部 analysis（含時間與步驟提示）
 
 先編輯：
 
@@ -129,14 +183,14 @@ ANALYSIS_ENV_FILE=/path/to/analysis.env bash scripts/analysis/run_all_analysis.s
 
 `artifacts/results/analysis_S2/logs/`
 
-## 7. TerraMind encoder（EDL-TERRAMIND）
+## 8. TerraMind encoder（EDL-TERRAMIND）
 
 `EDL_TerraMind_ML4FloodsModel` 用 TerraMind v1 base（ViT-B/16）取代 EDL 模型的 UNet encoder，decoder / EDL head / loss 不變。
 encoder 原始碼 vendor 自 terratorch 1.2.11（`flood_uncertainty/models/backbones/terramind_vendored/`，Apache-2.0），
 權重由 `huggingface_hub` 取得（`ibm-esa-geospatial/TerraMind-1.0-base`）。config 欄位 `backbone_*` 說明與設計理由見
 `docs/terramind_edl_integration_log.md`；整合計畫見 `docs/foundation_model_integration.md`。
 
-## 8. 路徑說明
+## 9. 路徑說明
 
 - 資料根目錄：預設由 config 的 `data_params.path_to_splits` 決定（可用 `--data_root` 覆寫）
 - 推論與評估輸出：預設寫到 `artifacts/results/val_test_inference`
