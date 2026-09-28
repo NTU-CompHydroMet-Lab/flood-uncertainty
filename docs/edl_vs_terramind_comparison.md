@@ -47,14 +47,74 @@ B、C 的 model_type 都是 `EDL-TERRAMIND`，輸出目錄依 model_type 命名�
 
 ## 3. 結果
 
-（待補：B 訓練 2026-09-29 00:20 結束，C 之後啟動。）
+A、B 已完成（2026-09-29 01:26）。C 訓練中（預計 05:00 結束），數字待補。
+表格由 `artifacts/runs/compare/summarize.py` 產生；ckpt：A `epoch=8-step=9225`，B `epoch=3-step=16396`（best `val_bce_land_water`）。
 
 ### 3.1 Segmentation（val / test）
 
+**val OVERALL**（pixel 加總）
+
+| model | Acc | Precision | Recall | F1 | IoU water |
+|---|---|---|---|---|---|
+| A. EDL baseline | 0.9666 | 0.8890 | 0.9816 | 0.9330 | 0.8745 |
+| B. TerraMind frozen | 0.9581 | 0.8594 | 0.9838 | 0.9174 | 0.8474 |
+
+**val AVERAGE**（per-event 平均）
+
+| model | Acc | Precision | Recall | F1 | IoU water |
+|---|---|---|---|---|---|
+| A. EDL baseline | 0.9623 | 0.8487 | 0.9315 | 0.8831 | 0.8016 |
+| B. TerraMind frozen | 0.9536 | 0.8074 | 0.9301 | 0.8576 | 0.7631 |
+
+**test OVERALL**（pixel 加總）
+
+| model | Acc | Precision | Recall | F1 | IoU water |
+|---|---|---|---|---|---|
+| A. EDL baseline | 0.9418 | 0.8894 | 0.9236 | 0.9062 | 0.8285 |
+| B. TerraMind frozen | 0.9382 | 0.8915 | 0.9074 | 0.8994 | 0.8171 |
+
+**test AVERAGE**（per-event 平均）
+
+| model | Acc | Precision | Recall | F1 | IoU water |
+|---|---|---|---|---|---|
+| A. EDL baseline | 0.9586 | 0.9089 | 0.9050 | 0.9035 | 0.8303 |
+| B. TerraMind frozen | 0.9544 | 0.8956 | 0.9055 | 0.8984 | 0.8211 |
+
+
 ### 3.2 Uncertainty（retention curve / PAvPU）
 
-### 3.3 訓練曲線
+**PAvPU（OVERALL，patch 3×3，retention target 0.9）**
 
-## 4. 結論
+| model | subset | DST | Aleatoric | Epistemic | A+E |
+|---|---|---|---|---|---|
+| A. EDL baseline | val | 0.9010 | 0.9012 | 0.9008 | 0.9011 |
+| A. EDL baseline | test | 0.8394 | 0.8393 | 0.8395 | 0.8394 |
+| B. TerraMind frozen | val | 0.9005 | 0.9003 | 0.9008 | 0.9005 |
+| B. TerraMind frozen | test | 0.8479 | 0.8482 | 0.8482 | 0.8482 |
 
-（待補）
+**Retention curve：IoU-vs-retention 曲線下面積（normalized AUC）/ retention 50% 時的 IoU**
+
+| model | subset | DST | Aleatoric | Epistemic | A+E |
+|---|---|---|---|---|---|
+| A. EDL baseline | val | 0.9909 / 0.9976 | 0.9908 / 0.9976 | 0.9909 / 0.9976 | 0.9909 / 0.9976 |
+| A. EDL baseline | test | 0.9688 / 0.9828 | 0.9688 / 0.9828 | 0.9688 / 0.9828 | 0.9688 / 0.9828 |
+| B. TerraMind frozen | val | 0.9872 / 0.9967 | 0.9866 / 0.9967 | 0.9870 / 0.9967 | 0.9867 / 0.9967 |
+| B. TerraMind frozen | test | 0.9665 / 0.9849 | 0.9665 / 0.9849 | 0.9665 / 0.9849 | 0.9665 / 0.9849 |
+
+### 3.3 訓練曲線（`lightning_logs/version_0/metrics.csv`，val 17 張；訓練時的 IoU 是 tile 級、雙類別 water IoU，數值與 §3.1 整圖推論不可直接比）
+
+| model | best val_bce：epoch / val_bce / IoU water | best IoU water：epoch / IoU | final：epoch / val_bce / IoU | epoch 0 IoU |
+|---|---|---|---|---|
+| A. EDL baseline | 8 / 0.0621 / 0.7030 | 3 / 0.7054 | 29 / 0.0777 / 0.6737 | 0.6298 |
+| B. TerraMind frozen | 3 / 0.0645 / 0.5132 | 2 / 0.5153 | 29 / 0.0765 / 0.5012 | 0.4973 |
+| C. frozen + WF2 decoder | 待補 | | | |
+
+## 4. 初步結論（A vs B，C 待補）
+
+- **Segmentation**：B 落後 A，但差距不大：val OVERALL IoU 0.847 vs 0.874（−2.7 pt），test 0.817 vs 0.828（−1.1 pt）。差距幾乎全在 precision（val 0.859 vs 0.889，多報水），recall 持平。
+  per-event AVERAGE 差距較大（val 0.763 vs 0.802），表示 B 在少數小事件上錯得比較多。
+- **Uncertainty 品質**：兩者相當。PAvPU val 0.90 vs 0.90，test B 反而略高（0.848 vs 0.839）；retention AUC val 0.987 vs 0.991、test 0.967 vs 0.969；retention 50% 時 test IoU B 略高（0.985 vs 0.983）。
+  四種 uncertainty（DST / aleatoric / epistemic / a+e）在兩個模型上的排序效果幾乎一樣，這是 EDL head 的性質，與 encoder 無關。
+- **訓練行為**：B 在 epoch 2–3 就到平台（訓練時 tile 級 IoU 0.51，A 是 0.70），之後 27 個 epoch 沒有進步；encoder 凍結時 decoder 容量很快用完。
+  訓練時 IoU 差 0.19 但整圖推論只差 0.01–0.03，代表 tile 級 metric 對 B 特別悲觀（可能與 256 tile 的 ViT 邊界效應有關，整圖推論時 padding/裁切後影響變小）。
+- **意義**：完全不微調 TerraMind encoder、decoder 從零訓練，就能達到 fine-tune 過的 UNet baseline 97–99% 的 IoU 與同等的 uncertainty 品質。要超越 baseline 需要解凍 encoder（可選的 D 組）。
