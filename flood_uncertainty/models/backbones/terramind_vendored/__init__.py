@@ -13,10 +13,15 @@ Contents (all under the upstream Apache-2.0 licence, see ``LICENSE``):
   modality_info.py       MODALITY_INFO, untokenized image modalities only     (trimmed)
   modality_embeddings.py build_modality_embeddings                            (trimmed)
   terramind_vit.py       TerraMindViT                                         (tokenizer removed)
-  factory.py             build_terramind_vit + weights / bands helpers        (adapted)
+  factory.py             build_terramind_vit / build_terramind_tim + helpers  (adapted)
+  TiM path ("Thinking in Modalities", see factory.build_terramind_tim):
+  terramind_tim.py       TerraMindTiM                                         (verbatim)
+  terramind.py           TerraMind encoder-decoder (frozen TiM generator)     (verbatim)
+  generate.py            GenerationSampler & schedules                        (verbatim)
+  decoder_embeddings.py  ImageTokenDecoderEmbedding & co.                     (verbatim)
 
-Only :func:`build_terramind_vit` is meant to be imported from outside.
+Only :func:`build_terramind_vit` and :func:`build_terramind_tim` are meant to be imported from outside.
 """
 
-from .factory import PRETRAINED_BANDS, PRETRAINED_WEIGHTS, VARIANTS, build_terramind_vit  # noqa: F401
+from .factory import PRETRAINED_BANDS, PRETRAINED_WEIGHTS, VARIANTS, build_terramind_tim, build_terramind_vit  # noqa: F401
 from .terramind_vit import TerraMindViT  # noqa: F401

@@ -20,7 +20,7 @@
 
 # --- flood-uncertainty vendoring note ---------------------------------------
 # Copied from terratorch 1.2.11 (IBM/terratorch, Apache-2.0), file
-#   terratorch/models/backbones/terramind/model/modality_info.py (untokenized image modalities only)
+#   terratorch/models/backbones/terramind/model/modality_info.py (untokenized image modalities + tok_lulc for TiM)
 # Reason: terratorch >= 1.0.1 requires torchgeo >= 0.7 (Python >= 3.11); this
 # project is pinned to Python 3.10. Only the ViT *encoder* path is vendored.
 # Edits relative to upstream are marked with `# [vendored]`.
@@ -29,7 +29,8 @@
 import hashlib
 from functools import partial
 
-from .encoder_embeddings import ImageEncoderEmbedding
+from .decoder_embeddings import ImageTokenDecoderEmbedding  # [vendored] for TiM tokenized targets
+from .encoder_embeddings import ImageEncoderEmbedding, ImageTokenEncoderEmbedding
 
 
 def generate_uint15_hash(seed_str):  # [vendored] copied from terramind/utils.py
@@ -109,5 +110,19 @@ MODALITY_INFO = {
         "num_channels": 1,
         "id": generate_uint15_hash("untok_dem@224"),
         "path": "DEM_untokenized",
+    },
+    # [vendored] tokenized LULC, re-added from upstream for TiM ("Thinking in Modalities").
+    "tok_lulc@224": {
+        "input_size": 224,
+        "patch_size": 16,
+        "vocab_size": 4375,
+        "encoder_embedding": partial(ImageTokenEncoderEmbedding, vocab_size=4375),
+        "decoder_embedding": partial(ImageTokenDecoderEmbedding, vocab_size=4375),
+        "min_tokens": 0,
+        "max_tokens": None,  # Will be set to 196
+        "type": "img",
+        "id": generate_uint15_hash("tok_lulc@224"),
+        "pretokenized": True,
+        "path": "LULC_tokens",
     },
 }

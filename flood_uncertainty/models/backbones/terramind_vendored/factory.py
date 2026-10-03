@@ -17,7 +17,8 @@
 #   terratorch/models/backbones/terramind/model/terramind_register.py
 # Kept: PRETRAINED_BANDS, HF weight ids, the four v1 ViT variant configs,
 # select_modality_patch_embed_weights, checkpoint_filter_fn, build_terramind_vit.
-# Dropped: TERRATORCH_*_REGISTRY registration, TiM / encoder-decoder / generation
+# Also kept (for TiM): checkpoint_filter_fn_tim, build_terramind_tim (as build_terrammind_tim upstream).
+# Dropped: TERRATORCH_*_REGISTRY registration, encoder-decoder / generation
 # builders, tokenizer_dict. Edits are marked `# [vendored]`.
 # -----------------------------------------------------------------------------
 
@@ -28,6 +29,7 @@ import torch
 from huggingface_hub import hf_hub_download
 from torch import nn
 
+from .terramind_tim import TerraMindTiM
 from .terramind_vit import TerraMindViT
 from .tm_utils import LayerNorm
 
@@ -220,5 +222,88 @@ def build_terramind_vit(
 
     if bands is not None:
         model = select_modality_patch_embed_weights(model, bands, pretrained_bands)
+
+    return model
+
+
+def checkpoint_filter_fn_tim(state_dict, model: TerraMindTiM) -> dict:
+    """Manually filter pre-trained weights for TerraMind TiM to enable strict weight loading.
+
+    Each pretrained key is loaded into the fine-tunable encoder (if present there) *and* into the
+    frozen generator ``sampler.model.<key>`` (encoder + decoder of the any-to-any model).
+    """
+    model_state_dict = model.state_dict()
+    clean_dict = {}
+    for k, v in state_dict.items():
+        if k in model_state_dict:
+            if v.shape == model_state_dict[k].shape:
+                clean_dict[k] = v
+            else:
+                logger.warning(
+                    f"Shape for {k} ({list(v.shape)}) does not match model weights "
+                    f"({list(model_state_dict[k].shape)}), skipping weights."
+                )
+        if "sampler.model." + k in model_state_dict:
+            # Copy weights for MAE model for TiM
+            encdec_k = "sampler.model." + k
+            if v.shape == model_state_dict[encdec_k].shape:
+                clean_dict[encdec_k] = v
+            else:
+                raise ValueError(
+                    f"Shape for {k} ({list(v.shape)}) does not match MAE model weights "
+                    f"({list(model_state_dict[encdec_k].shape)}). Cannot run chain of thoughts without MAE."
+                )
+
+    missing_params = set(model_state_dict.keys()) - set(clean_dict.keys())
+    for k in missing_params:
+        if k.startswith("sampler.model."):
+            raise ValueError(f"Weights for {k} are missing in state dict, cannot run chain of thoughts without MAE.")
+        if not k.startswith("tokenizer"):
+            logger.warning(f"Weights for {k} are missing in state dict, using random initialization.")
+        clean_dict[k] = model_state_dict[k]
+
+    return clean_dict
+
+
+def build_terramind_tim(
+    variant: str = "terramind_v1_base",
+    pretrained: bool = False,
+    ckpt_path: str | None = None,
+    bands: dict[str, list] | None = None,
+    decoder_depth: int | None = None,
+    **kwargs,
+) -> TerraMindTiM:
+    """[vendored] Equivalent of ``BACKBONE_REGISTRY.build(f"{variant}_tim", ...)``.
+
+    Upstream (``build_terrammind_tim``) rejects ``bands``: the frozen generator only accepts the
+    exact pre-trained modalities, so feed full-band inputs (e.g. ``S2L1C`` with all 13 bands).
+    ``tokenizer_dict`` is not passed: tokenizers are only needed to tokenize inputs or to decode
+    text targets, not to generate image-token modalities such as LULC.
+    """
+    if variant not in VARIANTS:
+        raise ValueError(f"Unknown TerraMind variant '{variant}'. Available: {sorted(VARIANTS)}")
+    if bands is not None:
+        raise NotImplementedError(
+            f"Bands cannot be adapted for TerraMind TiM models and is expected to be None. "
+            f"Only exact matches with pre-trained modalities are supported, got {bands}."
+        )
+    cfg = dict(VARIANTS[variant])
+    cfg["decoder_depth"] = decoder_depth or cfg["encoder_depth"]  # [vendored] v1 decoders mirror encoder depth
+
+    model = TerraMindTiM(pretrained=pretrained, **cfg, **kwargs)
+
+    if ckpt_path is not None:
+        state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        state_dict = checkpoint_filter_fn_tim(state_dict, model)  # [vendored] also fill sampler.model.*
+        model.load_state_dict(state_dict, strict=True)
+    elif pretrained:
+        state_dict_file = hf_hub_download(
+            repo_id=PRETRAINED_WEIGHTS[variant]["hf_hub_id"], filename=PRETRAINED_WEIGHTS[variant]["hf_hub_filename"]
+        )
+        state_dict = torch.load(state_dict_file, map_location="cpu", weights_only=True)
+        state_dict = checkpoint_filter_fn_tim(state_dict, model)
+        model.load_state_dict(state_dict, strict=True)
+    else:
+        logger.warning("TerraMind TiM model not pre-trained. Generation of TiM modalities will not work correctly.")
 
     return model

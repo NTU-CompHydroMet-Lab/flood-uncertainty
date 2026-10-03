@@ -43,7 +43,7 @@ S2_BAND_TO_TERRAMIND: Dict[str, str] = {
     "B8": "NIR_BROAD",
     "B8A": "NIR_NARROW",
     "B9": "WATER_VAPOR",
-    "B10": "CIRRUS",  # L1C only; not part of the S2L2A pretrained bands
+    "B10": "CIRRUS",  # L1C only; part of S2L1C, not of the S2L2A pretrained bands
     "B11": "SWIR_1",
     "B12": "SWIR_2",
 }
@@ -79,21 +79,62 @@ TERRAMIND_V1_S2L2A_STD: Dict[str, float] = {
     "SWIR_2": 1334.311,
 }
 
+#: Same for the ``S2L1C`` modality (13 bands incl. CIRRUS). WorldFloods v2 S2 imagery is L1C.
+TERRAMIND_V1_S2L1C_MEAN: Dict[str, float] = {
+    "COASTAL_AEROSOL": 2357.089,
+    "BLUE": 2137.385,
+    "GREEN": 2018.788,
+    "RED": 2082.986,
+    "RED_EDGE_1": 2295.651,
+    "RED_EDGE_2": 2854.537,
+    "RED_EDGE_3": 3122.849,
+    "NIR_BROAD": 3040.56,
+    "NIR_NARROW": 3306.481,
+    "WATER_VAPOR": 1473.847,
+    "CIRRUS": 506.07,
+    "SWIR_1": 2472.825,
+    "SWIR_2": 1838.929,
+}
+TERRAMIND_V1_S2L1C_STD: Dict[str, float] = {
+    "COASTAL_AEROSOL": 1624.683,
+    "BLUE": 1675.806,
+    "GREEN": 1557.708,
+    "RED": 1833.702,
+    "RED_EDGE_1": 1823.738,
+    "RED_EDGE_2": 1733.977,
+    "RED_EDGE_3": 1732.131,
+    "NIR_BROAD": 1679.732,
+    "NIR_NARROW": 1727.26,
+    "WATER_VAPOR": 1024.687,
+    "CIRRUS": 442.165,
+    "SWIR_1": 1331.411,
+    "SWIR_2": 1160.419,
+}
 
-def terramind_bands_from_channel_configuration(channel_configuration: str) -> List[str]:
-    """Map an ml4floods ``channel_configuration`` (e.g. ``"bgriswirs"``) to TerraMind S2L2A band names.
+#: Sentinel-2 modalities the wrapper can feed from ml4floods tensors -> (mean, std) pre-training stats.
+TERRAMIND_V1_S2_STATS: Dict[str, tuple] = {
+    "S2L2A": (TERRAMIND_V1_S2L2A_MEAN, TERRAMIND_V1_S2L2A_STD),
+    "S2L1C": (TERRAMIND_V1_S2L1C_MEAN, TERRAMIND_V1_S2L1C_STD),
+}
 
-    Raises if the configuration contains a band TerraMind S2L2A was not
-    pre-trained on (currently only ``B10``/CIRRUS).
+
+def terramind_bands_from_channel_configuration(channel_configuration: str, modality: str = "S2L2A") -> List[str]:
+    """Map an ml4floods ``channel_configuration`` (e.g. ``"bgriswirs"``) to TerraMind band names of ``modality``.
+
+    Raises if the configuration contains a band the modality was not pre-trained
+    on (for S2L2A: ``B10``/CIRRUS).
     """
     if channel_configuration not in CHANNELS_CONFIGURATIONS:
         raise ValueError(f"Unknown channel_configuration: {channel_configuration}")
+    if modality not in TERRAMIND_V1_S2_STATS:
+        raise ValueError(f"Unsupported Sentinel-2 modality '{modality}' (expected one of {list(TERRAMIND_V1_S2_STATS)})")
+    pretrained_mean = TERRAMIND_V1_S2_STATS[modality][0]
     band_ids = [BANDS_S2[i] for i in CHANNELS_CONFIGURATIONS[channel_configuration]]
     bands = []
     for b in band_ids:
         name = S2_BAND_TO_TERRAMIND[b]
-        if name not in TERRAMIND_V1_S2L2A_MEAN:
-            raise ValueError(f"Band {b} ({name}) is not available in the TerraMind S2L2A pretrained bands")
+        if name not in pretrained_mean:
+            raise ValueError(f"Band {b} ({name}) is not available in the TerraMind {modality} pretrained bands")
         bands.append(name)
     return bands
 
@@ -111,12 +152,13 @@ class InputRenormalizer(nn.Module):
     checkpoints.
     """
 
-    def __init__(self, channel_configuration: str, bands: Sequence[str]):
+    def __init__(self, channel_configuration: str, bands: Sequence[str], modality: str = "S2L2A"):
         super().__init__()
         s2_idx = CHANNELS_CONFIGURATIONS[channel_configuration]
         ml = SENTINEL2_NORMALIZATION[s2_idx]  # (C, 2) -> mean, std
-        tm_mean = np.array([TERRAMIND_V1_S2L2A_MEAN[b] for b in bands], dtype=np.float32)
-        tm_std = np.array([TERRAMIND_V1_S2L2A_STD[b] for b in bands], dtype=np.float32)
+        mean, std = TERRAMIND_V1_S2_STATS[modality]
+        tm_mean = np.array([mean[b] for b in bands], dtype=np.float32)
+        tm_std = np.array([std[b] for b in bands], dtype=np.float32)
         if len(bands) != ml.shape[0]:
             raise ValueError("bands and channel_configuration length mismatch")
         view = lambda a: torch.as_tensor(a, dtype=torch.float32).view(1, -1, 1, 1)  # noqa: E731
@@ -201,6 +243,8 @@ def _build_terramind_encoder(
     pretrained: bool,
     local_ckpt_path: Optional[str],
     impl: str = "vendored",
+    tim_modalities: Optional[Sequence[str]] = None,
+    tim_temps: float = 0.0,
 ) -> nn.Module:
     """The single place that touches a TerraMind factory.
 
@@ -209,8 +253,16 @@ def _build_terramind_encoder(
     ``terratorch.registry.BACKBONE_REGISTRY.build`` and requires a terratorch
     install (Python >= 3.11); it exists so the two can be compared and so the
     vendored copy can be dropped once the project moves off 3.10.
+
+    ``tim_modalities`` switches to the TiM ("Thinking in Modalities") model: a frozen copy of the
+    pretrained encoder-decoder first generates those modalities (e.g. ``["LULC"]``) from the input,
+    then the fine-tuned encoder sees input + generated tokens (merged by mean per position).
+    ``tim_temps=0.0`` decodes with argmax so outputs are deterministic (upstream default is 1.0
+    with top-p 0.8 sampling, i.e. a different LULC every forward pass, also at inference).
     """
     kwargs = dict(modalities=list(modalities), merge_method="mean")
+    if tim_modalities:
+        kwargs.update(tim_modalities=list(tim_modalities), tim_temps=tim_temps)
     if bands is not None:
         kwargs["bands"] = bands
     if local_ckpt_path:
@@ -221,9 +273,9 @@ def _build_terramind_encoder(
         kwargs["pretrained"] = pretrained
 
     if impl == "vendored":
-        from flood_uncertainty.models.backbones.terramind_vendored import build_terramind_vit
+        from flood_uncertainty.models.backbones.terramind_vendored import build_terramind_tim, build_terramind_vit
 
-        return build_terramind_vit(variant, **kwargs)
+        return (build_terramind_tim if tim_modalities else build_terramind_vit)(variant, **kwargs)
     if impl == "terratorch":
         try:
             from terratorch.registry import BACKBONE_REGISTRY
@@ -232,7 +284,7 @@ def _build_terramind_encoder(
                 "backbone_impl='terratorch' needs terratorch (Python >= 3.11); "
                 "use backbone_impl='vendored' on the 3.10 lock."
             ) from e
-        return BACKBONE_REGISTRY.build(variant, **kwargs)
+        return BACKBONE_REGISTRY.build(f"{variant}_tim" if tim_modalities else variant, **kwargs)
     raise ValueError(f"Unknown backbone impl '{impl}' (expected 'vendored' or 'terratorch')")
 
 
@@ -241,19 +293,21 @@ class TerraMindBackbone(nn.Module):
 
     Args:
         variant: terratorch backbone name, e.g. ``"terramind_v1_base"``.
-        modalities: TerraMind modality keys, currently a single one (``"S2L2A"``).
+        modalities: TerraMind modality keys, currently a single one (``"S2L2A"`` or ``"S2L1C"``).
         channel_configuration: ml4floods channel configuration of the incoming
             tensor. Used to derive the TerraMind band subset and (optionally)
-            the re-normalisation statistics. Only meaningful for ``S2L2A``.
+            the re-normalisation statistics. Only meaningful for ``S2L2A`` / ``S2L1C``.
         bands: explicit TerraMind band names; overrides ``channel_configuration``.
         pretrained: download / load HuggingFace weights.
         local_ckpt_path: offline ``.pt`` state dict; when set, ``pretrained`` is ignored.
         select_layers: 0-based encoder block indices to tap (4 required).
         freeze: set ``requires_grad=False`` on every encoder parameter.
-        renormalize_input: apply :class:`InputRenormalizer` (S2L2A only).
+        renormalize_input: apply :class:`InputRenormalizer` (S2L2A / S2L1C only).
         patch_size: TerraMind patch size (16 for v1).
         impl: ``"vendored"`` (default) or ``"terratorch"``; see :func:`_build_terramind_encoder`.
-        impl: ``"vendored"`` (default) or ``"terratorch"``; see :func:`_build_terramind_encoder`.
+        tim_modalities: e.g. ``["LULC"]`` to enable TiM; requires the full pre-trained band set of
+            ``modalities[0]`` (e.g. ``S2L1C`` + ``channel_configuration="all"``).
+        tim_temps: TiM sampling temperature; ``0.0`` = argmax (deterministic).
     """
 
     def __init__(
@@ -269,6 +323,8 @@ class TerraMindBackbone(nn.Module):
         renormalize_input: bool = True,
         patch_size: int = 16,
         impl: str = "vendored",
+        tim_modalities: Optional[Sequence[str]] = None,
+        tim_temps: float = 0.0,
     ):
         super().__init__()
         if len(modalities) != 1:
@@ -280,24 +336,42 @@ class TerraMindBackbone(nn.Module):
         self.select_layers = list(select_layers)
 
         band_list: Optional[List[str]] = list(bands) if bands is not None else None
-        if band_list is None and channel_configuration is not None and self.modality == "S2L2A":
-            band_list = terramind_bands_from_channel_configuration(channel_configuration)
+        is_s2 = self.modality in TERRAMIND_V1_S2_STATS
+        if band_list is None and channel_configuration is not None and is_s2:
+            band_list = terramind_bands_from_channel_configuration(channel_configuration, self.modality)
         self.bands = band_list
 
         if renormalize_input:
-            if self.modality != "S2L2A" or channel_configuration is None or band_list is None:
-                raise ValueError("renormalize_input requires modality='S2L2A' and channel_configuration")
-            self.renorm: nn.Module = InputRenormalizer(channel_configuration, band_list)
+            if not is_s2 or channel_configuration is None or band_list is None:
+                raise ValueError(
+                    f"renormalize_input requires modality in {list(TERRAMIND_V1_S2_STATS)} and channel_configuration"
+                )
+            self.renorm: nn.Module = InputRenormalizer(channel_configuration, band_list, self.modality)
         else:
             self.renorm = nn.Identity()
+
+        self.tim_modalities = list(tim_modalities) if tim_modalities else None
+        if self.tim_modalities:
+            # The frozen TiM generator only accepts the exact pre-trained band set.
+            full = list(TERRAMIND_V1_S2_STATS[self.modality][0]) if is_s2 else None
+            if band_list is not None and band_list != full:
+                raise ValueError(
+                    f"TiM needs all pre-trained {self.modality} bands {full}, got {band_list}; "
+                    f"use e.g. modality 'S2L1C' with channel_configuration 'all'"
+                )
+            enc_bands = None
+        else:
+            enc_bands = {self.modality: band_list} if band_list is not None else None
 
         self.encoder = _build_terramind_encoder(
             variant=variant,
             modalities=modalities,
-            bands={self.modality: band_list} if band_list is not None else None,
+            bands=enc_bands,
             pretrained=pretrained,
             local_ckpt_path=local_ckpt_path,
             impl=impl,
+            tim_modalities=self.tim_modalities,
+            tim_temps=tim_temps,
         )
         self.impl = impl
         enc_channels = list(self.encoder.out_channels)  # one entry per encoder block
@@ -322,6 +396,9 @@ class TerraMindBackbone(nn.Module):
         if self.frozen:
             # keep frozen encoder in eval mode (no dropout / drop-path stochasticity)
             self.encoder.eval()
+        elif self.tim_modalities:
+            # the TiM generator is always frozen; keep it in eval mode
+            self.encoder.sampler.model.eval()
         return self
 
     def forward(self, image_dict: Dict[str, torch.Tensor]) -> List[torch.Tensor]:

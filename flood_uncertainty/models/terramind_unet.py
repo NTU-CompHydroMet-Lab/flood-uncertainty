@@ -95,7 +95,8 @@ def build_terramind_unet(h_params: Dict, n_class: int) -> TerraMindUNet:
     Recognised keys (all optional, plan §7 naming):
       backbone, backbone_modalities, backbone_pretrained, backbone_local_ckpt,
       backbone_select_layers, backbone_freeze, backbone_renormalize_input,
-      backbone_impl, decoder_channels, channel_configuration.
+      backbone_impl, backbone_tim_modalities, backbone_tim_temps,
+      decoder_channels, channel_configuration.
     """
     get = h_params.get
     backbone = TerraMindBackbone(
@@ -108,6 +109,8 @@ def build_terramind_unet(h_params: Dict, n_class: int) -> TerraMindUNet:
         freeze=bool(get("backbone_freeze", False)),
         renormalize_input=bool(get("backbone_renormalize_input", True)),
         impl=get("backbone_impl", "vendored"),
+        tim_modalities=get("backbone_tim_modalities", None),
+        tim_temps=float(get("backbone_tim_temps", 0.0)),
     )
     return TerraMindUNet(
         backbone=backbone,

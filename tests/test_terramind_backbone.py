@@ -10,6 +10,8 @@ import torch
 
 from ml4floods.data.worldfloods.configs import CHANNELS_CONFIGURATIONS, SENTINEL2_NORMALIZATION
 from flood_uncertainty.models.backbones.terramind_backbone import (
+    TERRAMIND_V1_S2L1C_MEAN,
+    TERRAMIND_V1_S2L1C_STD,
     TERRAMIND_V1_S2L2A_MEAN,
     TERRAMIND_V1_S2L2A_STD,
     InputRenormalizer,
@@ -58,6 +60,44 @@ def test_learned_pyramid_strides():
     out = pyr(f)
     assert [o.shape[-1] for o in out] == [16, 8, 4, 2]
     assert pyr.scale_factors == [4, 2, 1, 0.5]
+
+
+def test_all_maps_to_s2l1c_band_names_in_pretrained_order():
+    # WorldFloods v2 S2 is L1C with 13 bands in the same order as TerraMind's S2L1C embedding
+    assert terramind_bands_from_channel_configuration("all", "S2L1C") == [
+        "COASTAL_AEROSOL", "BLUE", "GREEN", "RED", "RED_EDGE_1", "RED_EDGE_2", "RED_EDGE_3",
+        "NIR_BROAD", "NIR_NARROW", "WATER_VAPOR", "CIRRUS", "SWIR_1", "SWIR_2",
+    ]
+
+
+def test_unsupported_s2_modality_is_rejected():
+    with pytest.raises(ValueError, match="S2RGB"):
+        terramind_bands_from_channel_configuration("bgriswirs", "S2RGB")
+
+
+def test_input_renormalizer_uses_s2l1c_statistics():
+    cfg = "all"
+    bands = terramind_bands_from_channel_configuration(cfg, "S2L1C")
+    ml = SENTINEL2_NORMALIZATION[CHANNELS_CONFIGURATIONS[cfg]]
+    raw = torch.rand(2, 13, 4, 4) * 5000.0
+    x_ml = (raw - torch.tensor(ml[:, 0]).view(1, -1, 1, 1)) / torch.tensor(ml[:, 1]).view(1, -1, 1, 1)
+
+    tm_mean = torch.tensor([TERRAMIND_V1_S2L1C_MEAN[b] for b in bands]).view(1, -1, 1, 1)
+    tm_std = torch.tensor([TERRAMIND_V1_S2L1C_STD[b] for b in bands]).view(1, -1, 1, 1)
+    expected = (raw - tm_mean) / tm_std
+
+    got = InputRenormalizer(cfg, bands, "S2L1C")(x_ml)
+    assert torch.allclose(got, expected, atol=1e-4)
+
+
+def test_s2l1c_backbone_uses_13_band_l1c_embedding():
+    bb = TerraMindBackbone(
+        variant="terramind_v1_base", modalities=("S2L1C",), channel_configuration="all", pretrained=False,
+    )
+    assert bb.encoder.encoder_embeddings["untok_sen2l1c@224"].proj.in_features == 13 * 16 * 16
+    with torch.no_grad():
+        feats = bb({"S2L1C": torch.randn(1, 13, 32, 32)})
+    assert [f.shape[-1] for f in feats] == [8, 4, 2, 1]
 
 
 def test_input_renormalizer_matches_manual_computation():
