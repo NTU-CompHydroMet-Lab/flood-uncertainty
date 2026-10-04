@@ -91,3 +91,33 @@ def test_forward_accepts_sizes_not_divisible_by_patch():
     with torch.no_grad():
         out = model(torch.randn(1, 6, 45, 70))
     assert out.shape == (1, 4, 45, 70)
+
+
+def test_input_skip_is_off_by_default():
+    model = EDL_TerraMind_ML4FloodsModel(_model_params(), normalized_data=True)
+    assert model.network.input_skip is None
+
+
+def test_input_skip_forward_backward_and_param_cost():
+    base = EDL_TerraMind_ML4FloodsModel(_model_params(), normalized_data=True)
+    model = EDL_TerraMind_ML4FloodsModel(_model_params(decoder_input_skip_channels=32), normalized_data=True)
+    extra = sum(p.numel() for p in model.parameters()) - sum(p.numel() for p in base.parameters())
+    assert 0 < extra < 100_000  # tiny next to ~97M
+    out = model(torch.randn(1, 6, 45, 70))  # also through the pad / crop path
+    assert out.shape == (1, 4, 45, 70)
+    out.sum().backward()
+    assert model.network.input_skip[0].weight.grad is not None
+    # the skip trains at the decoder lr, not the backbone lr
+    groups = model.configure_optimizers()["optimizer"].param_groups
+    skip_ids = {id(p) for p in model.network.input_skip.parameters()}
+    assert skip_ids <= {id(p) for p in groups[0]["params"]} and groups[0]["lr"] == 1e-4
+
+
+def test_input_skip_needs_in_channels():
+    import pytest
+    from flood_uncertainty.models.terramind_unet import TerraMindUNet
+    from flood_uncertainty.models.backbones.terramind_backbone import TerraMindBackbone
+
+    bb = TerraMindBackbone(channel_configuration="bgriswirs", pretrained=False)
+    with pytest.raises(ValueError, match="in_channels"):
+        TerraMindUNet(bb, n_class=4, input_skip_channels=32)

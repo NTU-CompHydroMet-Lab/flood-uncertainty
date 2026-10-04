@@ -8,6 +8,13 @@ the encoder changed (plan §0: "只有這顆換了；decoder、head 都不動").
 Skip widths default to the original UNet's ``[64, 128, 256, 512]`` so the
 decoder capacity matches the baseline; ``decoder_channels`` is given
 top-down (``[512, 256, 128, 64]``) to match the plan's config field.
+
+Optional full-resolution input skip (``input_skip_channels > 0``): the raw input
+goes through a ``double_conv`` at stride 1 and is concatenated with the
+upsampled decoder features before ``dconv_full`` (as UNETR feeds the input to
+a conv block at the highest resolution). The ViT's finest real features are at
+stride 16; this gives the last decoder block per-pixel evidence, aimed at the
+patch-scale (2-32 px) over-prediction of water seen around water bodies.
 """
 
 from __future__ import annotations
@@ -29,6 +36,8 @@ class TerraMindUNet(nn.Module):
         backbone: a constructed :class:`TerraMindBackbone` (strides 4/8/16/32).
         n_class: number of output channels (``2 * num_tasks`` for EDL).
         decoder_channels: top-down decoder widths, deepest first.
+        input_skip_channels: width of the full-resolution input skip; 0 disables it.
+        in_channels: number of input bands; required when ``input_skip_channels > 0``.
     """
 
     def __init__(
@@ -36,6 +45,8 @@ class TerraMindUNet(nn.Module):
         backbone: TerraMindBackbone,
         n_class: int,
         decoder_channels: Sequence[int] = (512, 256, 128, 64),
+        input_skip_channels: int = 0,
+        in_channels: Optional[int] = None,
     ):
         super().__init__()
         if list(backbone.downsample_ratios) != [4, 8, 16, 32]:
@@ -55,8 +66,14 @@ class TerraMindUNet(nn.Module):
         self.dconv_up3 = layer_factory.double_conv(skip[2] + skip[3], skip[2])
         self.dconv_up2 = layer_factory.double_conv(skip[1] + skip[2], skip[1])
         self.dconv_up1 = layer_factory.double_conv(skip[0] + skip[1], skip[0])
+        # Full-resolution skip straight from the input (optional)
+        self.input_skip: Optional[nn.Module] = None
+        if input_skip_channels > 0:
+            if not in_channels:
+                raise ValueError("input_skip_channels > 0 needs in_channels (number of input bands)")
+            self.input_skip = layer_factory.double_conv(in_channels, input_skip_channels)
         # Stride 4 -> full resolution (the CNN UNet never leaves stride 1, so this is new)
-        self.dconv_full = layer_factory.double_conv(skip[0], skip[0])
+        self.dconv_full = layer_factory.double_conv(skip[0] + max(input_skip_channels, 0), skip[0])
         self.conv_last = nn.Conv2d(skip[0], n_class, kernel_size=1)
 
     @staticmethod
@@ -85,6 +102,8 @@ class TerraMindUNet(nn.Module):
         y = self.dconv_up1(y)  # stride 4
 
         y = F.interpolate(y, size=(h + pad_h, w + pad_w), mode="bilinear", align_corners=True)
+        if self.input_skip is not None:
+            y = torch.cat([y, self.input_skip(x)], dim=1)
         y = self.dconv_full(y)
         return self.conv_last(y)[:, :, :h, :w]
 
@@ -96,7 +115,7 @@ def build_terramind_unet(h_params: Dict, n_class: int) -> TerraMindUNet:
       backbone, backbone_modalities, backbone_pretrained, backbone_local_ckpt,
       backbone_select_layers, backbone_freeze, backbone_renormalize_input,
       backbone_impl, backbone_tim_modalities, backbone_tim_temps,
-      decoder_channels, channel_configuration.
+      decoder_channels, decoder_input_skip_channels, num_channels, channel_configuration.
     """
     get = h_params.get
     backbone = TerraMindBackbone(
@@ -116,4 +135,6 @@ def build_terramind_unet(h_params: Dict, n_class: int) -> TerraMindUNet:
         backbone=backbone,
         n_class=n_class,
         decoder_channels=tuple(get("decoder_channels", [512, 256, 128, 64])),
+        input_skip_channels=int(get("decoder_input_skip_channels", 0)),
+        in_channels=get("num_channels", None),
     )
