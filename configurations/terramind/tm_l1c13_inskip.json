@@ -1,6 +1,6 @@
 {
   "shared": {
-    "experiment_name": "edl_terramind_v1_base_s2l1c_all_nofreeze",
+    "experiment_name": "edl_terramind_v1_base_s2l1c_all_nofreeze_inskip32",
     "seed": 42,
     "model_params": {
       "pretrained_path": null,
@@ -69,7 +69,8 @@
           256,
           128,
           64
-        ]
+        ],
+        "decoder_input_skip_channels": 32
       }
     },
     "data_params": {
@@ -118,7 +119,7 @@
   },
   "validate_only": {
     "model_params": {
-      "zarr_save_path": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/zarr/val_results_edl_terramind_v1_base_s2l1c_all_nofreeze.zarr"
+      "zarr_save_path": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/zarr/val_results_edl_terramind_v1_base_s2l1c_all_nofreeze_inskip32.zarr"
     }
   }
 }

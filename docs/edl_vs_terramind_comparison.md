@@ -43,10 +43,10 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
 | 名稱 | Config | 實驗目錄（`artifacts/models/`） | 結果目錄 tag |
 |---|---|---|---|
 | `unet_baseline` | `configurations/edl.json`（訓練於 chlunchen 機器） | `edl_EpochKL_20260819`（symlink） | `EDL` |
-| `tm_l2a6` | `artifacts/runs/edl_terramind_nofreeze.json` | `edl_terramind_v1_base_bgriswirs_nofreeze` | `EDL-TERRAMIND_nofreeze_ep*` |
-| `tm_l1c13` | `artifacts/runs/edl_terramind_s2l1c_nofreeze.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze` | `EDL-TERRAMIND_s2l1c_ep*` |
-| `tm_l1c13_tim` | `artifacts/runs/edl_terramind_s2l1c_nofreeze_tim.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze_tim_lulc` | `EDL-TERRAMIND_tim_ep*` |
-| `tm_l1c13_inskip` | `artifacts/runs/edl_terramind_s2l1c_nofreeze_inskip.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze_inskip32` | `EDL-TERRAMIND_inskip_ep*` |
+| `tm_l2a6` | `configurations/terramind/tm_l2a6.json` | `edl_terramind_v1_base_bgriswirs_nofreeze` | `EDL-TERRAMIND_nofreeze_ep*` |
+| `tm_l1c13` | `configurations/terramind/tm_l1c13.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze` | `EDL-TERRAMIND_s2l1c_ep*` |
+| `tm_l1c13_tim` | `configurations/terramind/tm_l1c13_tim.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze_tim_lulc` | `EDL-TERRAMIND_tim_ep*` |
+| `tm_l1c13_inskip` | `configurations/terramind/tm_l1c13_inskip.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze_inskip32` | `EDL-TERRAMIND_inskip_ep*` |
 
 **共同條件**：WorldFloods v2（train 475 / **val 16** / test 18 張 S2；每 epoch 約 65,600 個 window），`max_tile_size 256`、
 `filter_windows`（`threshold_clouds 0.8`）、Adam、ReduceLROnPlateau（factor 0.5 / patience 2）on `val_bce_land_water`、
@@ -69,8 +69,9 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
 | `tm_l1c13_tim` | ep16 | ep29 |
 | `tm_l1c13_inskip` | ep13 | ep29 |
 
-**推論 tile 尺寸**：訓練用 256×256。**所有主要結果用 256 tile 推論**（事先固定，不依結果挑選），透過包裝腳本
-`artifacts/runs/compare/run_inference_tile.py` 實現，不修改 `run_inference.py`。原本的 1024 tile 結果保留為敏感度分析（§3.4）。
+**推論 tile 尺寸**：訓練用 256×256。**所有主要結果用 256 tile 推論**（事先固定，不依結果挑選）。當時透過包裝腳本
+`artifacts/runs/compare/run_inference_tile.py` 實現；現在 `run_inference.py --max_tile_size` 原生支援，
+且 `EDL-TERRAMIND` 未指定時預設即為 256（其他 model_type 維持 1024）。原本的 1024 tile 結果保留為敏感度分析（§3.4）。
 
 **Pipeline**：`artifacts/runs/compare/run_pipeline_tile.sh`：`run_inference.py`（整圖）→ `eval_metrics.py` → `analysis_S2.py`（retention）→ `compute_pavpu.py`（PAvPU）；
 報表由 `report.py` / `make_reports.sh` 產生（`artifacts/runs/compare/report_*_tile256.md`），另以 `eval_val_iou.py` 算 val 的 pooled IoU（§3.6）。
@@ -277,7 +278,7 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
 ## 附錄 A：凍結 encoder（`tm_frozen_l2a6`，1024 tile）
 
 `tm_frozen_l2a6`：TerraMind 凍結、decoder 隨機、`bgriswirs` 6 波段 → S2L2A，batch 16；ckpt ep3（best val）。
-Config `artifacts/runs/edl_terramind_freeze.json`，實驗目錄 `edl_terramind_v1_base_bgriswirs_freeze`，結果 tag `EDL-TERRAMIND_freeze`。
+Config `configurations/terramind/tm_frozen_l2a6.json`，實驗目錄 `edl_terramind_v1_base_bgriswirs_freeze`，結果 tag `EDL-TERRAMIND_freeze`。
 
 | model | val OVERALL | val AVERAGE | test OVERALL | test AVERAGE | test retention AUC |
 |---|---|---|---|---|---|

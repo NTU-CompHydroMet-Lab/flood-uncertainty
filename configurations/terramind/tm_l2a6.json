@@ -1,6 +1,6 @@
 {
   "shared": {
-    "experiment_name": "edl_terramind_v1_base_s2l1c_all_nofreeze",
+    "experiment_name": "edl_terramind_v1_base_bgriswirs_nofreeze",
     "seed": 42,
     "model_params": {
       "pretrained_path": null,
@@ -9,7 +9,7 @@
       "hyperparameters": {
         "max_tile_size": 256,
         "metric_monitor": "val_bce_land_water",
-        "channel_configuration": "all",
+        "channel_configuration": "bgriswirs",
         "weight_problem": [
           0.2,
           0.8
@@ -47,11 +47,11 @@
         "lr_decay": 0.5,
         "lr_patience": 2,
         "early_stopping_patience": 50,
-        "num_channels": 13,
+        "num_channels": 6,
         "backbone": "terramind_v1_base",
         "backbone_impl": "vendored",
         "backbone_modalities": [
-          "S2L1C"
+          "S2L2A"
         ],
         "backbone_pretrained": true,
         "backbone_local_ckpt": null,
@@ -95,7 +95,7 @@
         256,
         256
       ],
-      "channel_configuration": "all",
+      "channel_configuration": "bgriswirs",
       "add_mndwi_input": false,
       "train_transformation": {
         "normalize": true
@@ -118,7 +118,7 @@
   },
   "validate_only": {
     "model_params": {
-      "zarr_save_path": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/zarr/val_results_edl_terramind_v1_base_s2l1c_all_nofreeze.zarr"
+      "zarr_save_path": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/zarr/val_results_edl_terramind_v1_base_bgriswirs_nofreeze.zarr"
     }
   }
 }
