@@ -252,6 +252,9 @@ def load_model(
         model = EDL_ML4FloodsModel(config.model_params)
     elif model_type == "EDL-TERRAMIND":
         # Same EDL head/outputs as "EDL"; only the encoder differs, so downstream handling is shared.
+        # Every weight (incl. the TerraMind encoder and TiM generator) comes from the checkpoint below,
+        # so skip the HF pretrained download: it would be overwritten and fails on offline nodes.
+        config["model_params"]["hyperparameters"]["backbone_pretrained"] = False
         model = EDL_TerraMind_ML4FloodsModel(config.model_params)
     elif model_type == "EDL-SAR":
         model = EDL_SAR_Unet(config.model_params)

@@ -38,7 +38,7 @@ CONFIG = {
     "save_pred_tif": True,        # 是否存預測結果
     "max_files": None,            # smoke 用：每個 subset 最多跑幾筆
     "th_water": 0.5,               # 水體閾值
-    "max_tile_size": 1024,
+    "max_tile_size": None,         # None: 256 for EDL-TERRAMIND (ViT trained on 256 windows), else 1024
     "config_path_EDL": os.path.join(project_root, "configurations", "edl.json"),
     "config_path_EDL_TERRAMIND": os.path.join(project_root, "configurations", "edl_terramind.json"),
     "config_path_v2": os.path.join(project_root, "configurations", "v2.json")
@@ -155,6 +155,12 @@ if __name__ == "__main__":
     parser.add_argument("--no_save_plot", action="store_false", dest="save_plot")
     parser.add_argument("--save_pred_tif", action="store_true", default=CONFIG["save_pred_tif"])
     parser.add_argument("--no_save_pred_tif", action="store_false", dest="save_pred_tif")
+    parser.add_argument(
+        "--max_tile_size",
+        type=int,
+        default=CONFIG["max_tile_size"],
+        help="Inference tile size. Default: 256 for EDL-TERRAMIND (training window), 1024 otherwise.",
+    )
     args, _ = parser.parse_known_args()
     CONFIG["model_type"] = args.model_type
     CONFIG["config_path_EDL"] = args.config_edl
@@ -164,6 +170,9 @@ if __name__ == "__main__":
     CONFIG["save_plot"] = args.save_plot
     CONFIG["save_pred_tif"] = args.save_pred_tif
     CONFIG["max_files"] = args.max_files
+    if args.max_tile_size is None:
+        args.max_tile_size = 256 if args.model_type == "EDL-TERRAMIND" else 1024
+    CONFIG["max_tile_size"] = args.max_tile_size
 
     parsed_subsets = [subset.strip() for subset in args.subsets.split(",") if subset.strip()]
     if not parsed_subsets:

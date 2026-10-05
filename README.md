@@ -190,6 +190,12 @@ encoder 原始碼 vendor 自 terratorch 1.2.11（`flood_uncertainty/models/backb
 權重由 `huggingface_hub` 取得（`ibm-esa-geospatial/TerraMind-1.0-base`）。config 欄位 `backbone_*` 說明與設計理由見
 `docs/terramind_edl_integration_log.md`；整合計畫見 `docs/foundation_model_integration.md`。
 
+- 預設 config `configurations/edl_terramind.json` = `tm_l1c13`（S2L1C 13 band、encoder 不凍結）。
+- 比較實驗的 config 在 `configurations/terramind/`（`tm_l2a6`、`tm_l1c13`、`tm_l1c13_tim`、`tm_l1c13_inskip`、`tm_frozen_l2a6`），
+  結果見 `docs/edl_vs_terramind_comparison.md`。
+- 推論 tile：`run_inference.py --max_tile_size N`；未指定時 `EDL-TERRAMIND` 用 256（訓練 window），其他 model_type 用 1024。
+- 推論只從 checkpoint 載入權重，不會下載 HF 權重（可在離線節點執行）。
+
 ## 9. 路徑說明
 
 - 資料根目錄：預設由 config 的 `data_params.path_to_splits` 決定（可用 `--data_root` 覆寫）
