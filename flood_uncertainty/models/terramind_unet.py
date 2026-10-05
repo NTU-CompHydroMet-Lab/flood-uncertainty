@@ -91,6 +91,13 @@ class TerraMindUNet(nn.Module):
         pad_h, pad_w = (-h) % p, (-w) % p
         if pad_h or pad_w:
             x = F.pad(x, (0, pad_w, 0, pad_h), mode="reflect")
+        if self.backbone.tim_modalities:
+            # TiM's tokenized-modality embedding only accepts a square token grid; non-square tiles
+            # (image edges at inference) are padded to a square here. Training tiles are already square.
+            s = max(h + pad_h, w + pad_w)
+            if s > h + pad_h or s > w + pad_w:
+                x = F.pad(x, (0, s - (w + pad_w), 0, s - (h + pad_h)), mode="replicate")
+                pad_h, pad_w = s - h, s - w
         feats = self.backbone({self.modality: x})  # the one translation line (plan §5)
         c1, c2, c3, c4 = [lat(f) for lat, f in zip(self.lateral, feats)]  # strides 4, 8, 16, 32
 

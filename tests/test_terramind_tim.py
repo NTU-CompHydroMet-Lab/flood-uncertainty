@@ -77,3 +77,14 @@ def test_tim_pretrained_loads_encoder_and_generator(monkeypatch):
             assert torch.equal(msd["sampler.model." + k], sd[k]), k
     n_dec = sum(1 for k in msd if k.startswith("sampler.model.decoder."))
     assert n_dec == sum(1 for k in sd if k.startswith("decoder.")), "every generator decoder weight loaded"
+
+
+def test_tim_unet_accepts_non_square_inputs():
+    # inference tiles at image edges are not square; TiM's token embedding needs a square grid
+    from flood_uncertainty.models.terramind_unet import TerraMindUNet
+
+    torch.manual_seed(0)
+    net = TerraMindUNet(_tim_backbone(), n_class=4).eval()
+    with torch.no_grad():
+        out = net(torch.randn(1, 13, 45, 70))
+    assert out.shape == (1, 4, 45, 70)
