@@ -17,7 +17,7 @@
 #   terratorch/models/backbones/terramind/model/terramind_tim.py
 # Reason: terratorch >= 1.0.1 requires torchgeo >= 0.7 (Python >= 3.11); this
 # project is pinned to Python 3.10. Added for the TiM ("Thinking in Modalities") path.
-# Verbatim (tim_temps=0.0 already gives argmax decoding upstream).
+# Verbatim except the RNG fork around generate() (tim_temps=0.0 already gives argmax decoding upstream).
 # Edits relative to upstream are marked with `# [vendored]`.
 # -----------------------------------------------------------------------------
 
@@ -468,7 +468,10 @@ class TerraMindTiM(nn.Module):
             cfg_grow_conditioning=True,
         )
 
-        with torch.no_grad():
+        # [vendored] generate() calls torch.manual_seed(seed), which reseeds the global CPU/CUDA RNGs on
+        # every forward; fork the RNG state so dropout / drop-path / sampling after TiM stay governed by
+        # the run seed instead of Python's `random`.
+        with torch.no_grad(), torch.random.fork_rng(devices=[device] if torch.device(device).type == "cuda" else []):
             out_dict = self.sampler.generate(
                 tim_dict,
                 schedule,

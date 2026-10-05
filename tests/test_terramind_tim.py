@@ -88,3 +88,13 @@ def test_tim_unet_accepts_non_square_inputs():
     with torch.no_grad():
         out = net(torch.randn(1, 13, 45, 70))
     assert out.shape == (1, 4, 45, 70)
+
+
+def test_tim_forward_preserves_global_torch_rng(tim):
+    # upstream generate() calls torch.manual_seed; the vendored TiM forks the RNG around it
+    x = torch.randn(1, 13, 64, 64)
+    torch.manual_seed(123)
+    state = torch.get_rng_state()
+    with torch.no_grad():
+        tim({"S2L1C": x})
+    assert torch.equal(torch.get_rng_state(), state), "TiM forward must not reseed the global torch RNG"

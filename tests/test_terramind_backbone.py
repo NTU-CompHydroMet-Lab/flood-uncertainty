@@ -204,12 +204,15 @@ def test_local_ckpt_path_skips_huggingface_download(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_vendored_matches_terratorch_with_pretrained_weights():
+def test_vendored_matches_terratorch_pyramid_features():
     pytest.importorskip("terratorch")
     torch.manual_seed(0)
     kw = dict(channel_configuration="bgriswirs", pretrained=True, renormalize_input=False)
-    a = TerraMindBackbone(impl="vendored", **kw).eval()
-    b = TerraMindBackbone(impl="terratorch", **kw).eval()
+    try:
+        a = TerraMindBackbone(impl="vendored", **kw).eval()
+        b = TerraMindBackbone(impl="terratorch", **kw).eval()
+    except Exception as e:  # no HF cache / no network
+        pytest.skip(f"pretrained weights unavailable: {e}")
     # pyramid heads are randomly initialised per instance: copy them so only the encoder differs
     b.pyramid.load_state_dict(a.pyramid.state_dict())
     sa, sb = a.encoder.state_dict(), b.encoder.state_dict()
@@ -232,7 +235,7 @@ def test_unknown_impl_is_rejected():
 # --------------------------------------------------------------------------- #
 
 
-def test_vendored_matches_terratorch_with_pretrained_weights():
+def test_vendored_matches_terratorch_encoder_tokens():
     pytest.importorskip("terratorch")
     try:
         a = TerraMindBackbone(channel_configuration="bgriswirs", pretrained=True, impl="vendored")
