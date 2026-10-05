@@ -100,7 +100,7 @@ def plot_spatial_confusion_matrix(gt_path, pred_path, s2_rgb, model_type="EDL", 
     with rasterio.open(pred_path) as src:
         if model_type == "v2":
             band_idx, expected_desc = 1, "Water_Probability"
-        elif model_type == "EDL":
+        elif model_type in ("EDL", "EDL-TERRAMIND"):  # same EDL head, same output bands
             band_idx, expected_desc = 2, "Water_Probability"
         elif model_type == "ensemble":
             band_idx, expected_desc = 2, "Mean_Water_Probability"

@@ -1,0 +1,124 @@
+{
+  "shared": {
+    "experiment_name": "edl_terramind_v1_base_bgriswirs_freeze",
+    "seed": 42,
+    "model_params": {
+      "pretrained_path": null,
+      "model_folder": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/models",
+      "model_version": "v2",
+      "hyperparameters": {
+        "max_tile_size": 256,
+        "metric_monitor": "val_bce_land_water",
+        "channel_configuration": "bgriswirs",
+        "weight_problem": [
+          0.2,
+          0.8
+        ],
+        "pos_weight": [
+          [
+            1,
+            20
+          ],
+          [
+            1,
+            6
+          ]
+        ],
+        "label_names": [
+          [
+            "invalid",
+            "clear",
+            "cloud"
+          ],
+          [
+            "invalid",
+            "land",
+            "water"
+          ]
+        ],
+        "model_type": "edl_terramind",
+        "num_classes": 2,
+        "annealing_mode": "linear",
+        "annealing_coefficient": 0.5,
+        "annealing_step": 10,
+        "max_epochs": 30,
+        "val_every": 1,
+        "lr": 0.0001,
+        "lr_decay": 0.5,
+        "lr_patience": 2,
+        "early_stopping_patience": 50,
+        "num_channels": 6,
+        "backbone": "terramind_v1_base",
+        "backbone_impl": "vendored",
+        "backbone_modalities": [
+          "S2L2A"
+        ],
+        "backbone_pretrained": true,
+        "backbone_local_ckpt": null,
+        "backbone_select_layers": [
+          2,
+          5,
+          8,
+          11
+        ],
+        "backbone_freeze": true,
+        "backbone_renormalize_input": true,
+        "backbone_lr_mult": 0.1,
+        "decoder_channels": [
+          512,
+          256,
+          128,
+          64
+        ]
+      }
+    },
+    "data_params": {
+      "loader_type": "local",
+      "num_workers": 20,
+      "filter_windows": {
+        "version": "v2",
+        "threshold_clouds": 0.8,
+        "apply": true
+      },
+      "download": {
+        "train": false,
+        "val": false,
+        "test": false
+      },
+      "bucket_id": "",
+      "path_to_splits": "/home/NAS/house/ycchen-10014/data/worldfloods_v2",
+      "train_test_split_file": "/home/NAS/house/ycchen-10014/data/worldfloods_v2/train_test_split_from_csv.json",
+      "input_folder": "S2",
+      "target_folder": "gt",
+      "batch_size": 16,
+      "window_size": [
+        256,
+        256
+      ],
+      "channel_configuration": "bgriswirs",
+      "add_mndwi_input": false,
+      "train_transformation": {
+        "normalize": true
+      },
+      "test_transformation": {
+        "normalize": true
+      }
+    },
+    "resume_from_checkpoint": false,
+    "gpus": 0,
+    "wandb_entity": "flood_uncertainty",
+    "wandb_project": "flood_uncertainty_edl_terramind",
+    "wandb_mode": "offline"
+  },
+  "train": {
+    "model_params": {}
+  },
+  "infer": {
+    "model_params": {}
+  },
+  "validate_only": {
+    "model_params": {
+      "zarr_save_path": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/zarr/val_results_edl_terramind_v1_base_bgriswirs.zarr"
+    }
+  }
+}

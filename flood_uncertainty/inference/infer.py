@@ -20,6 +20,7 @@ from ml4floods.models.postprocess import get_pred_mask_v2
 from ml4floods.models.utils.configuration import AttrDict
 
 from flood_uncertainty.models.edl import EDL_ML4FloodsModel, EDL_SAR_Unet
+from flood_uncertainty.models.edl_terramind import EDL_TerraMind_ML4FloodsModel
 from flood_uncertainty.utils.config_loader import load_mode_config
 
 
@@ -249,6 +250,12 @@ def load_model(
 
     if model_type == "EDL":
         model = EDL_ML4FloodsModel(config.model_params)
+    elif model_type == "EDL-TERRAMIND":
+        # Same EDL head/outputs as "EDL"; only the encoder differs, so downstream handling is shared.
+        # Every weight (incl. the TerraMind encoder and TiM generator) comes from the checkpoint below,
+        # so skip the HF pretrained download: it would be overwritten and fails on offline nodes.
+        config["model_params"]["hyperparameters"]["backbone_pretrained"] = False
+        model = EDL_TerraMind_ML4FloodsModel(config.model_params)
     elif model_type == "EDL-SAR":
         model = EDL_SAR_Unet(config.model_params)
     elif model_type == "v2":

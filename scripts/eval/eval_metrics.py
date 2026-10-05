@@ -34,6 +34,7 @@ CONFIG = {
 MODEL_CONFIG_PATHS = {
     "v2": "configurations/v2.json",
     "EDL": "configurations/edl.json",
+    "EDL-TERRAMIND": "configurations/edl_terramind.json",
     "ensemble": "configurations/ensemble.json",
     "mcdropout": "configurations/dropout.json",
 }
@@ -43,7 +44,7 @@ MODEL_CONFIG_PATHS = {
 # ========================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_type", choices=["v2", "EDL", "ensemble", "mcdropout"], default=CONFIG["model_type"])
+    parser.add_argument("--model_type", choices=["v2", "EDL", "EDL-TERRAMIND", "ensemble", "mcdropout"], default=CONFIG["model_type"])
     parser.add_argument("--config", default=None)
     parser.add_argument("--config_mode", choices=["infer"], default=CONFIG["config_mode"])
     parser.add_argument("--data_root", default=None)

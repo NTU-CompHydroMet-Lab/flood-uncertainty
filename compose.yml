@@ -10,7 +10,7 @@ services:
     group_add:
       - keep-groups 
     working_dir: "${HOME}"
-    shm_sizes: '32gb'
+    shm_size: '32gb'
 
     ports:
       - "55667:22" 
