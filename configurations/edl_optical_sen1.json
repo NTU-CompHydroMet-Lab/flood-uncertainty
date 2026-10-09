@@ -1,0 +1,73 @@
+{
+  "shared": {
+    "experiment_name": "edl_optical_sen1floods11",
+    "seed": 42,
+    "model_params": {
+      "pretrained_path": "artifacts/models/edl_optical/checkpoint/epoch=17-step=18450.ckpt",
+      "model_folder": "artifacts/models",
+      "model_version": "v2",
+      "hyperparameters": {
+        "max_tile_size": 256,
+        "metric_monitor": "val_bce_land_water",
+        "channel_configuration": "bgriswirs",
+        "weight_problem": [
+          1.0
+        ],
+        "pos_weight": [
+          [
+            1,
+            6
+          ]
+        ],
+        "label_names": [
+          [
+            "invalid",
+            "land",
+            "water"
+          ]
+        ],
+        "model_type": "unet",
+        "num_classes": 1,
+        "annealing_mode": "linear",
+        "annealing_coefficient": 0.5,
+        "annealing_step": 10,
+        "max_epochs": 30,
+        "val_every": 1,
+        "lr": 0.0001,
+        "lr_decay": 0.5,
+        "lr_patience": 2,
+        "early_stopping_patience": 50,
+        "num_channels": 6,
+        "task_mode": "water_only"
+      }
+    },
+    "data_params": {
+      "dataset_type": "sen1floods11",
+      "modality": "optical",
+      "root_path": "/home/NAS/house/chlunchen-10030/datasets/sen1floods11_v1.1",
+      "optical_folder": "S2L1CHand",
+      "channel_configuration": "bgriswirs",
+      "tile_size": 256,
+      "batch_size": 4,
+      "num_workers": 4,
+      "data_augmentations": false,
+      "optical_scale": 1.0,
+      "optical_normalization": "worldfloods_pretrained"
+    },
+    "resume_from_checkpoint": false,
+    "gpus": 0,
+    "wandb_entity": null,
+    "wandb_project": "flood_uncertainty_edl_optical",
+    "wandb_enabled": true,
+    "wandb_log_model": false
+  },
+  "train": {
+    "model_params": {}
+  },
+  "infer": {
+    "model_params": {}
+  },
+  "validate_only": {
+    "model_params": {}
+  }
+}

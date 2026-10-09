@@ -216,7 +216,7 @@ if __name__ == "__main__":
         used_EDL=(model_type in ("EDL", "EDL-TERRAMIND")),
         th_water=th_water,
         th_brightness=3500,
-        distinguish_flood_traces=True
+        distinguish_flood_traces=(getattr(model, "task_mode", "cloud_water") != "water_only")
     )
     print("Model loaded successfully!")
     print("=" * 50)

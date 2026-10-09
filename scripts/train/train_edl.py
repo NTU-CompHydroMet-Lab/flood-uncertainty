@@ -43,6 +43,17 @@ args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode=args.mode)
 data_root = args.data_root or config.data_params.path_to_splits
 
+if args.resume_ckpt:
+    resume_meta = torch.load(args.resume_ckpt, map_location='cpu', weights_only=False)
+    saved_h = resume_meta.get('hyper_parameters', {}).get('model_params', {}).get('hyperparameters', {})
+    requested_h = config.model_params.hyperparameters
+    if saved_h.get('task_mode', 'cloud_water') != requested_h.get('task_mode', 'cloud_water'):
+        raise ValueError("Cannot resume across task modes; use pretrained_path to initialize a new run")
+    for key in ('model_type', 'num_classes', 'num_channels', 'channel_configuration'):
+        if key in saved_h and saved_h[key] != requested_h.get(key):
+            raise ValueError(f"Resume checkpoint architecture mismatch: {key}")
+
+
 # Set this to the path of the metadata CSV from huggingface
 CSV_PATH = os.path.join(data_root, "dataset_metadata.csv")
 # Point this to the root of the dataset on the mounted bucket
@@ -175,18 +186,11 @@ if config.model_params.get("pretrained_path", None):
     else:
         pretrained_dict = loaded
     
-    model_dict = model.state_dict()
-    filtered_dict = {k: v for k, v in pretrained_dict.items() 
-                     if k in model_dict and v.shape == model_dict[k].shape}
-    
-    model_dict.update(filtered_dict)
-    model.load_state_dict(model_dict)
-    
-    skipped = len(pretrained_dict) - len(filtered_dict)
+    missing = model.load_pretrained_weights(pretrained_dict)
     print(f"Loaded model weights: {pretrained_path}")
-    print(f"  Loaded: {len(filtered_dict)}/{len(pretrained_dict)} weights")
-    if skipped > 0:
-        print(f"  ⚠ Skipped {skipped} weights due to shape mismatch (will use random initialization)")
+    if missing:
+        print(f"Randomly initialized parameters: {missing}")
+
 else:
     print("No pretrained model weights provided")
 

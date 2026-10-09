@@ -1,6 +1,6 @@
 {
   "shared": {
-    "experiment_name": "edl_sar_kurosiwo",
+    "experiment_name": "edl_sar_kurosiwo_epochKL_fullrange",
     "seed": 42,
     "model_params": {
       "pretrained_path": null,
@@ -21,7 +21,7 @@
         "lr_decay": 0.5,
         "lr_patience": 2,
         "early_stopping_patience": 50,
-        "annealing_mode": "fixed",
+        "annealing_mode": "linear",
         "annealing_coefficient": 0.5,
         "annealing_step": 30
       }
@@ -29,11 +29,13 @@
     "data_params": {
       "batch_size": 64,
       "num_workers": 20,
-      "num_channels": 2,
-      "use_pre_event": false, 
-      "root_path": "/mnt/hdd/KuroSiwo_data/KuroSiwo",
+      "num_channels": 6,
+      "use_pre_event": true, 
+      "kurosiwo_code_path": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/KuroSiwo",
+      "root_path": "/home/NAS/house/ycchen-10014/data/Kuro-Siwo-GeoTIFFs/GRD_extracted",
       "track": "RandomEvents",
-      "test_pickle": "/home/NAS/temp_data/chlunchen/cj/ML4FloodsUncertainty/KuroSiwo/pickle/KuroV2_grid_dict_test_0_100.gz",
+      "train_pickle": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/KuroSiwo/pickle/KuroV2_grid_dict_test_0_100.gz",
+      "test_pickle": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/KuroSiwo/pickle/KuroV2_grid_dict_test_0_100.gz",
       "negative_pickle": null,
       "slc": false,
       "task": "segmentation",
@@ -49,8 +51,6 @@
       "scale_input": "normalize",
       "data_mean": [0.0953, 0.0264],
       "data_std": [0.0427, 0.0215],
-      "feature_mean": [0.0953, 0.0264, 93.4313, 2.1277],
-      "feature_std": [0.0427, 0.0215, 1410.8382, 67.5048],
       "dem_mean": 93.4313,
       "dem_std": 1410.8382,
       "slope_mean": 2.1277,
@@ -89,6 +89,9 @@
     },
     "resume_from_checkpoint": false,
     "gpus": 0,
+    "wandb_enabled": true,
+    "wandb_log_model": false,
+    "wandb_entity": null,
     "wandb_project": "flood_uncertainty_edl_sar"
   },
   "train": {"model_params": {}},

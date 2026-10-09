@@ -1,4 +1,4 @@
-"""Train or validate the KuroSiwo SAR EDL model."""
+"""Fine-tune the optical water-only EDL model on paired Sen1 splits."""
 
 import argparse
 import os
@@ -11,49 +11,42 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from flood_uncertainty.data.kurosiwo import create_kurosiwo_loaders
 from flood_uncertainty.data.sen1floods11 import create_sen1floods11_loaders
-from flood_uncertainty.models.edl import EDL_SAR_Unet
+from flood_uncertainty.models.edl import EDL_ML4FloodsModel
 from flood_uncertainty.utils.config_loader import load_mode_config
 
 
 def load_matching_weights(model: torch.nn.Module, path: str) -> None:
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-    state_dict = checkpoint.get("state_dict", checkpoint)
-    current = model.state_dict()
-    mismatched = [key for key, value in state_dict.items()
-                  if key in current and value.shape != current[key].shape]
-    if mismatched:
-        raise ValueError(f"Checkpoint architecture mismatch: {mismatched}. "
-                         "Sen1 SAR requires a VV/VH two-channel checkpoint.")
-    compatible = {
-        key: value
-        for key, value in state_dict.items()
-        if key in current and value.shape == current[key].shape
-    }
-    model.load_state_dict({**current, **compatible})
-    print(f"Loaded {len(compatible)}/{len(state_dict)} compatible weights from {path}")
+    state_dict = checkpoint.get("state_dict", checkpoint.get("model_state_dict", checkpoint))
+    missing = model.load_pretrained_weights(state_dict)
+    if missing:
+        raise ValueError(f"Incomplete optical checkpoint: {missing}")
+    print(f"Loaded all {len(model.state_dict())} optical weights from {path}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configurations/edl_sar.json")
+    parser.add_argument("--config", default="configurations/edl_optical_sen1.json")
     parser.add_argument("--mode", choices=["train", "validate_only"], default="train")
     parser.add_argument("--resume_ckpt", default=None)
     args = parser.parse_args()
 
     config = load_mode_config(args.config, mode=args.mode)
     seed_everything(config.seed)
-    dataset_type = config.data_params.get("dataset_type", "kurosiwo")
-    if dataset_type == "sen1floods11":
-        if config.data_params.get("modality", "sar") != "sar":
-            raise ValueError("SAR training requires modality=sar")
-        train_loader, val_loader, test_loader = create_sen1floods11_loaders(config.data_params)
-    elif dataset_type == "kurosiwo":
-        train_loader, val_loader, test_loader = create_kurosiwo_loaders(config.data_params)
-    else:
-        raise ValueError(f"Unknown SAR dataset_type: {dataset_type}")
-    model = EDL_SAR_Unet(config.model_params, normalized_data=False)
+    if args.resume_ckpt:
+        saved = torch.load(args.resume_ckpt, map_location="cpu", weights_only=False)
+        saved_h = saved.get("hyper_parameters", {}).get("model_params", {}).get("hyperparameters", {})
+        for key in ("task_mode", "num_channels", "num_classes", "channel_configuration", "model_type"):
+            if saved_h.get(key) != config.model_params.hyperparameters.get(key):
+                raise ValueError(f"Resume architecture mismatch: {key}")
+    if (config.data_params.get("dataset_type") != "sen1floods11"
+            or config.data_params.get("modality") != "optical"):
+        raise ValueError("This entry requires the Sen1 optical configuration")
+    if config.model_params.hyperparameters.get("task_mode") != "water_only":
+        raise ValueError("Sen1 labels supervise only the water task")
+    train_loader, val_loader, test_loader = create_sen1floods11_loaders(config.data_params)
+    model = EDL_ML4FloodsModel(config.model_params, normalized_data=True)
 
     pretrained_path = config.model_params.get("pretrained_path")
     if pretrained_path and not args.resume_ckpt:
@@ -61,7 +54,8 @@ def main() -> None:
 
     experiment_path = os.path.join(config.model_params.model_folder, config.experiment_name)
     monitor = config.model_params.hyperparameters.metric_monitor
-    wandb_logger = None
+    os.makedirs(experiment_path, exist_ok=True)
+    wandb_logger = False
     if config.get("wandb_enabled", False):
         wandb_logger = WandbLogger(
             name=config.experiment_name,
@@ -93,9 +87,11 @@ def main() -> None:
     )
 
     if args.mode == "validate_only":
-        trainer.validate(model, val_loader)
+        trainer.validate(model, val_loader, ckpt_path=args.resume_ckpt,
+                         weights_only=False if args.resume_ckpt else None)
     else:
-        trainer.fit(model, train_loader, val_loader, ckpt_path=args.resume_ckpt)
+        trainer.fit(model, train_loader, val_loader, ckpt_path=args.resume_ckpt,
+                    weights_only=False if args.resume_ckpt else None)
 
 
 if __name__ == "__main__":

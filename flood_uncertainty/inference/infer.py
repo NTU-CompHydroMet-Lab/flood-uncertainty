@@ -234,19 +234,24 @@ def load_model(
 ):
     config = load_mode_config(config_path, mode=mode)
 
+    weights_path = weights_path or config.model_params.get("pretrained_path")
+    if weights_path is None:
+        raise ValueError("Provide weights_path or config.model_params.pretrained_path")
+    checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    if model_type == "EDL":
+        saved_params = checkpoint.get("hyper_parameters", {}).get("model_params")
+        if saved_params is not None:
+            # Architecture and task mode belong to the checkpoint; retain runtime settings.
+            config.model_params.hyperparameters = AttrDict(saved_params['hyperparameters'])
+            config.data_params.channel_configuration = config.model_params.hyperparameters.channel_configuration
+
     if model_type == "EDL-SAR" or collection_name == "S1":
         channels = [0, 1]
     else:
-        channel_configuration = config["data_params"]["channel_configuration"]
+        channel_configuration = config.data_params.channel_configuration
         channels = get_channel_configuration_bands(channel_configuration, collection_name=collection_name)
-        print(f"channel configuration: {channel_configuration}")
     print(f"used channels: {channels}")
-
-    weights_path = weights_path or config.model_params.get("pretrained_path")
-    if weights_path is None:
-        raise ValueError("pretrained_path not found in config.model_params")
-    checkpoint = torch.load(weights_path, map_location="cpu", weights_only=False)
-    state_dict = checkpoint.get("state_dict", checkpoint)
 
     if model_type == "EDL":
         model = EDL_ML4FloodsModel(config.model_params)
@@ -305,7 +310,7 @@ def load_inference_function(
         config.data_params.channel_configuration, collection_name=collection_name
     )
     mndwi_indexes = None
-    if distinguish_flood_traces:
+    if distinguish_flood_traces and getattr(model, 'task_mode', 'cloud_water') != 'water_only':
         if collection_name == "S2":
             band_names = [BANDS_S2[iband] for iband in channels]
             mndwi_indexes = [band_names.index(band) for band in ["B3", "B11"]]
@@ -327,23 +332,26 @@ def load_inference_function(
                 pred = logits
                 dst_u = evidence = aleatoric = epistemic = None
 
-            land_water_cloud = get_pred_mask_v2(
-                s2l89tensor,
-                pred,
-                channels_input=channels,
-                th_water=th_water,
-                th_brightness=th_brightness,
-                collection_name=collection_name,
-            )
+            water_only = getattr(model, 'task_mode', 'cloud_water') == 'water_only'
+            if water_only:
+                water_prob = pred[model.water_task_index].cpu()
+                land_water_cloud = torch.ones_like(water_prob, dtype=torch.uint8)
+                land_water_cloud[water_prob > th_water] = 2
+                invalids = torch.all(s2l89tensor == 0, dim=0).cpu()
+                land_water_cloud[invalids] = 0
+            else:
+                land_water_cloud = get_pred_mask_v2(
+                    s2l89tensor, pred, channels_input=channels,
+                    th_water=th_water, th_brightness=th_brightness,
+                    collection_name=collection_name,
+                )
+                invalids = land_water_cloud == 0
+            pred[:, invalids.to(pred.device)] = -1
 
-            invalids = land_water_cloud == 0
-            pred[0][invalids] = -1
-            pred[1][invalids] = -1
-
-            if distinguish_flood_traces and mndwi_indexes is not None:
+            if not water_only and distinguish_flood_traces and mndwi_indexes is not None:
                 s2mndwi = s2l89tensor[mndwi_indexes, ...].float()
                 mndwi = (s2mndwi[0] - s2mndwi[1]) / (s2mndwi[0] + s2mndwi[1] + 1e-6)
-                land_water_cloud[(land_water_cloud == 2) & (mndwi < 0)] = 4
+                land_water_cloud[(land_water_cloud == 2) & (mndwi.cpu() < 0)] = 4
 
         return land_water_cloud, pred, dst_u, evidence, aleatoric, epistemic
 
@@ -395,9 +403,15 @@ def save_prediction_tif(
     model_type,
     output_dir="result",
 ):
+    water_index = pred_prob.shape[0] - 1
+    evidence_index = 2 * water_index
+    classification_desc = (
+        "Classification (0=invalid, 1=land, 2=water)" if pred_prob.shape[0] == 1 else
+        "Classification (0=invalid, 1=land, 2=water, 3=cloud, 4=flood_trace)"
+    )
     if dst_uncertainty is not None:
         band_descriptions = [
-            "Classification (0=invalid, 1=land, 2=water, 3=cloud, 4=flood_trace)",
+            classification_desc,
             "Water_DST_Uncertainty",
             "Water_Probability",
             "Water_Evidence_Neg",
@@ -408,23 +422,23 @@ def save_prediction_tif(
         output_data = np.stack(
             [
                 prediction.numpy().astype(np.float32),
-                dst_uncertainty[1].numpy(),
-                pred_prob[1].numpy(),
-                evidence[2].numpy(),
-                evidence[3].numpy(),
-                aleatoric[1].numpy(),
-                epistemic[1].numpy(),
+                dst_uncertainty[water_index].detach().cpu().numpy(),
+                pred_prob[water_index].detach().cpu().numpy(),
+                evidence[evidence_index].detach().cpu().numpy(),
+                evidence[evidence_index + 1].detach().cpu().numpy(),
+                aleatoric[water_index].detach().cpu().numpy(),
+                epistemic[water_index].detach().cpu().numpy(),
             ],
             axis=0,
         )
         output_path = f"{output_dir}/{filename}_output_{model_type}.tif"
     else:
         band_descriptions = [
-            "Classification (0=invalid, 1=land, 2=water, 3=cloud, 4=flood_trace)",
+            classification_desc,
             "Water_Probability",
         ]
         output_data = np.stack(
-            [prediction.numpy().astype(np.float32), pred_prob[1].numpy()],
+            [prediction.numpy().astype(np.float32), pred_prob[water_index].detach().cpu().numpy()],
             axis=0,
         )
         output_path = f"{output_dir}/{filename}_prediction_{model_type}.tif"

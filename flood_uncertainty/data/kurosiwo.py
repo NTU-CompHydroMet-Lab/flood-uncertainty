@@ -1,9 +1,53 @@
 """Adapters for the external KuroSiwo dataset loaders."""
 
+import importlib.util
+import sys
+from types import ModuleType
 from typing import Any, Tuple
 
 import torch
 from torch.utils.data import DataLoader, Dataset
+
+
+def _import_prepare_loaders(config: Any):
+    """Import KuroSiwo while keeping terrain support optional.
+
+    The upstream dataset module imports ``richdem`` at module import time even
+    when DEM and slope channels are disabled. A minimal placeholder is supplied
+    only for the VV/VH-only path; requesting terrain data still requires the
+    real dependency.
+    """
+
+    code_path = config.get("kurosiwo_code_path")
+    if code_path and code_path not in sys.path:
+        sys.path.insert(0, code_path)
+
+    terrain_enabled = config.get("dem", False) or config.get("slope", False)
+    richdem_available = importlib.util.find_spec("richdem") is not None
+    if terrain_enabled and not richdem_available:
+        raise ImportError(
+            "richdem is required when KuroSiwo DEM or slope inputs are enabled"
+        )
+
+    previous_richdem = sys.modules.get("richdem")
+    if not richdem_available:
+        sys.modules["richdem"] = ModuleType("richdem")
+
+    try:
+        from utilities.utilities import prepare_loaders
+    except ImportError as exc:
+        raise ImportError(
+            "Could not import the KuroSiwo loader. Set data_params."
+            "kurosiwo_code_path to the KuroSiwo checkout."
+        ) from exc
+    finally:
+        if not richdem_available:
+            if previous_richdem is None:
+                sys.modules.pop("richdem", None)
+            else:
+                sys.modules["richdem"] = previous_richdem
+
+    return prepare_loaders
 
 
 class KuroSiwoToEDL(Dataset):
@@ -69,13 +113,7 @@ def create_kurosiwo_loaders(config: Any):
     not require KuroSiwo unless the SAR data path is actually used.
     """
 
-    try:
-        from utilities.utilities import prepare_loaders
-    except ImportError as exc:
-        raise ImportError(
-            "KuroSiwo must be on PYTHONPATH to create SAR data loaders"
-        ) from exc
-
+    prepare_loaders = _import_prepare_loaders(config)
     train_loader, val_loader, test_loader = prepare_loaders(config)
     return wrap_kurosiwo_loaders(
         train_loader,

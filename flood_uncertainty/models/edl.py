@@ -20,7 +20,7 @@ from flood_uncertainty.losses import edl_loss as losses_uncertainty
 import xarray as xr 
 class EDL_ML4FloodsModel(pl.LightningModule):
     """
-    Model to do multioutput binary classification with EDL loss.
+    Optical EDL with cloud_water (default) or water_only tasks.
     It expects ground truths y (B, 2, H, W) tensors to be encoded as:
     - Channel 0: {0: invalid, 1: clear, 2: cloud}
     - Channel 1: {0: invalid, 1: land, 2: water}
@@ -29,12 +29,19 @@ class EDL_ML4FloodsModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         h_params_dict = model_params.get('hyperparameters', {})
-        self.num_class = h_params_dict.get('num_classes', 2)
-        assert self.num_class == 2, "Expected 2 output classes"
+        self.task_mode = h_params_dict.get('task_mode', 'cloud_water')
+        if self.task_mode not in ('cloud_water', 'water_only'):
+            raise ValueError(f"Unknown optical task_mode: {self.task_mode}")
+        self.num_class = 1 if self.task_mode == 'water_only' else 2
+        if h_params_dict.get('num_classes', self.num_class) != self.num_class:
+            raise ValueError("num_classes must match the number of tasks in task_mode")
+        self.water_task_index = self.num_class - 1
 
         self.pos_weight = h_params_dict.get('pos_weight',
                                             [1 for i in range(self.num_class)])
-        self.weight_problem = h_params_dict.get('weight_problem', [0.2, 0.8])
+        if len(self.pos_weight) != self.num_class:
+            raise ValueError('pos_weight must contain one entry per output task')
+        self.weight_problem = h_params_dict.get('weight_problem', [1.0] if self.num_class == 1 else [0.2, 0.8])
         if len(self.weight_problem) != self.num_class:
             raise ValueError("weight_problem must contain one weight per output task")
         self.annealing_mode = h_params_dict.get('annealing_mode', 'fixed')
@@ -55,12 +62,18 @@ class EDL_ML4FloodsModel(pl.LightningModule):
 
         # label names setup
         self.label_names = np.array(h_params_dict['label_names'])
-        assert self.label_names.shape == (2, 3), "Unexpected label names, expected: {}".format([["invalid","clear", "cloud"],
-                                                                                                ["invalid", "land", "water"]])
+        expected_labels = ([['invalid', 'land', 'water']] if self.num_class == 1
+                           else [['invalid', 'clear', 'cloud'], ['invalid', 'land', 'water']])
+        if self.label_names.tolist() != expected_labels:
+            raise ValueError(f"label_names must be {expected_labels}")
+        self.colormaps = ({0: COLORS_WORLDFLOODS_INVLANDWATER} if self.num_class == 1 else
+                         {0: COLORS_WORLDFLOODS_INVCLEARCLOUD, 1: COLORS_WORLDFLOODS_INVLANDWATER})
 
-        self.colormaps = {0 : COLORS_WORLDFLOODS_INVCLEARCLOUD, 1: COLORS_WORLDFLOODS_INVLANDWATER}
-        
         # ZARR保存相關變數（只有在val_only=True時才啟用）
+        self.epoch_cms = {}
+        self.train_epoch_cms = {}
+        self._train_loss_sum = 0.0
+        self._train_valid_count = 0
         self.val_only = model_params.get('val_only', False)
         self.zarr_save_path = model_params.get('zarr_save_path', None)
         self.zarr_item_count = 0
@@ -71,6 +84,29 @@ class EDL_ML4FloodsModel(pl.LightningModule):
         #     self.zarr_paths = [f"{base}_temp1.zarr", f"{base}_temp2.zarr"]
 
 
+    def select_targets(self, target: torch.Tensor) -> torch.Tensor:
+        """Keep the existing two-channel WorldFloods GT on disk."""
+        if target.ndim != 4 or target.shape[1] != 2:
+            raise ValueError("Optical GT must have two channels: cloud, water")
+        return target[:, 1:2] if self.task_mode == 'water_only' else target
+
+    def load_pretrained_weights(self, state_dict: dict) -> list:
+        """Initialize weights; explicitly preserve the old UNet water evidence head."""
+        current = self.state_dict()
+        loaded = {}
+        for key, value in state_dict.items():
+            if key not in current:
+                continue
+            if value.shape == current[key].shape:
+                loaded[key] = value
+            elif (self.task_mode == 'water_only'
+                  and key in ('network.conv_last.weight', 'network.conv_last.bias')
+                  and value.shape[0] == 4 and value[2:4].shape == current[key].shape):
+                loaded[key] = value[2:4]
+        current.update(loaded)
+        self.load_state_dict(current)
+        return sorted(set(current) - set(loaded))
+
     def training_step(self, batch: Dict, batch_idx) -> float:
         """
         Args:
@@ -78,7 +114,7 @@ class EDL_ML4FloodsModel(pl.LightningModule):
                 x (torch.Tensor): (B, 2, W, H), input image
                 y (torch.Tensor): (B, 2, W, H) encoded as {0: invalid, 1: neg_xxx, 2: pos_xxx}
         """
-        x, y = batch['image'], batch['mask']
+        x, y = batch['image'], self.select_targets(batch['mask'])
         logits = self.network(x)
         loss = losses_uncertainty.calc_edl_loss_multioutput_logistic_mask_invalid(logits, y,
                                                                   pos_weight_problem=self.pos_weight,
@@ -87,6 +123,13 @@ class EDL_ML4FloodsModel(pl.LightningModule):
                                                                   annealing_step=self.annealing_step,
                                                                   annealing_mode=self.annealing_mode,
                                                                   annealing_coefficient=self.annealing_coefficient)
+
+        with torch.no_grad():
+            predictions = self.edl_logits_to_probs(logits.detach()).round().long()
+            self._accumulate_epoch_confusions("train", y, predictions)
+            valid_count = int((y != 0).sum().item())
+            self._train_loss_sum = getattr(self, "_train_loss_sum", 0.0) + float(loss.detach().item()) * valid_count
+            self._train_valid_count = getattr(self, "_train_valid_count", 0) + valid_count
 
         if (batch_idx % 100) == 0:
             self.log("loss", loss)
@@ -224,7 +267,7 @@ class EDL_ML4FloodsModel(pl.LightningModule):
                 x (torch.Tensor): (B, C, W, H), input image
                 y (torch.Tensor): (B, W, H) encoded as {0: invalid, 1: land, 2: water, 3: cloud}
         """
-        x, y = batch['image'], batch['mask']
+        x, y = batch['image'], self.select_targets(batch['mask'])
         logits = self.network(x)
 
         bce_loss = losses_uncertainty.calc_edl_loss_multioutput_logistic_mask_invalid(logits, y)
@@ -243,18 +286,11 @@ class EDL_ML4FloodsModel(pl.LightningModule):
 
             cm_agg = torch.sum(cm_batch, dim=0)
             
-            # Debug: 印出混淆矩陣詳細資訊
-            if batch_idx == 0:
-                print(f"\n=== {problem_name} Confusion Matrix ===")
-                print(f"CM shape: {cm_agg.shape}")
-                print(f"CM:\n{cm_agg}")
-                print(f"  TP (pred=water, true=water) = cm[1,1] = {cm_agg[1,1]}")
-                print(f"  FP (pred=water, true=land)  = cm[1,0] = {cm_agg[1,0]}")  
-                print(f"  FN (pred=land, true=water)  = cm[0,1] = {cm_agg[0,1]}")
-                print(f"  TN (pred=land, true=land)   = cm[0,0] = {cm_agg[0,0]}")
-                print(f"  Precision = {cm_agg[1,1]} / ({cm_agg[1,1]} + {cm_agg[1,0]}) = {metrics.binary_precision(cm_agg):.4f}")
-                print(f"  Recall = {cm_agg[1,1]} / ({cm_agg[1,1]} + {cm_agg[0,1]}) = {metrics.binary_recall(cm_agg):.4f}")
-            
+            if problem_name not in self.epoch_cms:
+                self.epoch_cms[problem_name] = cm_agg.clone()
+            else:
+                self.epoch_cms[problem_name] += cm_agg
+
             self.log(f"val_Acc_{problem_name}", metrics.binary_accuracy(cm_agg))
             self.log(f"val_Precision_{problem_name}", metrics.binary_precision(cm_agg))
             self.log(f"val_Recall_{problem_name}", metrics.binary_recall(cm_agg))
@@ -276,10 +312,66 @@ class EDL_ML4FloodsModel(pl.LightningModule):
             self._append_batch_to_zarr(x, y, logits, pred_probs, batch_idx)
 
     def on_validation_epoch_start(self):
-        """在驗證epoch開始時重置ZARR計數器"""
+        """Reset validation aggregates and optional ZARR counters."""
+        self.epoch_cms = {}
         if self.val_only and self.zarr_save_path:
             self.zarr_item_count = 0
             self.zarr_initialized = False
+
+    def on_train_epoch_start(self):
+        self.train_epoch_cms = {}
+        self._train_loss_sum = 0.0
+        self._train_valid_count = 0
+
+    def _accumulate_epoch_confusions(self, stage, target, prediction):
+        attribute = "train_epoch_cms" if stage == "train" else "epoch_cms"
+        if not hasattr(self, attribute):
+            setattr(self, attribute, {})
+        accumulators = getattr(self, attribute)
+        for i in range(len(self.label_names)):
+            name = "_".join(self.label_names[i, 1:])
+            cm = metrics.compute_confusions(target[:, i], prediction[:, i],
+                                           num_class=2, remove_class_zero=True).sum(0)
+            accumulators[name] = accumulators.get(name, torch.zeros_like(cm)) + cm
+
+    def _log_epoch_confusions(self, stage, accumulators):
+        for i in range(len(self.label_names)):
+            name = "_".join(self.label_names[i, 1:])
+            if name not in accumulators:
+                continue
+            cm = accumulators[name]
+            tn, fn, fp, tp = [value.float() for value in cm.flatten()]
+            divide = lambda numerator, denominator: numerator / denominator.clamp_min(1)
+            water_iou = divide(tp, tp + fp + fn)
+            land_iou = divide(tn, tn + fp + fn)
+            values = {"Acc": divide(tp + tn, cm.sum()),
+                      "Precision": divide(tp, tp + fp), "Recall": divide(tp, tp + fn),
+                      "F1": divide(2 * tp, 2 * tp + fp + fn),
+                      "mIoU": (water_iou + land_iou) / 2,
+                      "iou_hand": water_iou, "valid_pixels": cm.sum().float(),
+                      "TP": tp, "FP": fp, "FN": fn, "TN": tn}
+            for key, value in values.items():
+                self.log(f"{stage}_Global_{key}_{name}", value.to(self.device),
+                         on_step=False, on_epoch=True)
+            for label, value in zip(self.label_names[i, 1:], (land_iou, water_iou)):
+                self.log(f"{stage}_Global_iou_{name} {label}", value.to(self.device),
+                         on_step=False, on_epoch=True)
+            if stage == "val":
+                print(f"\n=== {name} Validation Epoch {self.current_epoch} Confusion Matrix ===")
+                print(f"Rows: prediction {self.label_names[i, 1:].tolist()}; columns: GT")
+                print(cm)
+                print(f"Valid pixels: {int(cm.sum().item())}")
+
+    def on_train_epoch_end(self):
+        if self._train_valid_count:
+            self.log("train_loss_epoch", self._train_loss_sum / self._train_valid_count,
+                     on_step=False, on_epoch=True)
+        self._log_epoch_confusions("train", self.train_epoch_cms)
+        self.train_epoch_cms = {}
+
+    def on_validation_epoch_end(self):
+        self._log_epoch_confusions("val", self.epoch_cms)
+        self.epoch_cms = {}
 
     def _init_zarr_structure(self, batch_size: int, num_channels: int, height: int, width: int, zarr_path: str = None):
         """初始化ZARR文件結構（使用XArray）"""
@@ -341,6 +433,24 @@ class EDL_ML4FloodsModel(pl.LightningModule):
 
     def _append_batch_to_zarr(self, x: torch.Tensor, y: torch.Tensor, logits: torch.Tensor, pred_probs: torch.Tensor, batch_idx: int):
         """將batch數據append到ZARR文件"""
+        if self.task_mode == 'water_only':
+            water_prob = pred_probs[:, 0].detach().cpu().numpy()
+            ds = xr.Dataset({
+                'input': (['item', 'channel', 'height', 'width'], x.detach().cpu().numpy()),
+                'ground_truth_water': (['item', 'height', 'width'], y[:, 0].detach().cpu().numpy()),
+                'logits_water': (['item', 'channel_water', 'height', 'width'], logits.detach().cpu().numpy()),
+                'pred_probs_water': (['item', 'channel_water', 'height', 'width'],
+                                     np.stack([1 - water_prob, water_prob], axis=1)),
+            }, coords={'item': np.arange(self.zarr_item_count, self.zarr_item_count + x.shape[0])})
+            os.makedirs(os.path.dirname(self.zarr_save_path) or '.', exist_ok=True)
+            if not self.zarr_initialized:
+                ds.to_zarr(self.zarr_save_path, mode='w')
+                self.zarr_initialized = True
+            else:
+                ds.to_zarr(self.zarr_save_path, mode='a', append_dim='item')
+            self.zarr_item_count += x.shape[0]
+            return
+
         # 轉換為numpy並移到CPU
         x_np = x.detach().cpu().numpy()  # (B, C, H, W)
         y_np = y.detach().cpu().numpy()  # (B, 2, H, W)
@@ -480,6 +590,10 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
         self.colormaps = {0 : COLORS_WORLDFLOODS_INVLANDWATER}
         
         # ZARR保存相關變數（只有在val_only=True時才啟用）
+        self.epoch_cms = {}
+        self.train_epoch_cms = {}
+        self._train_loss_sum = 0.0
+        self._train_valid_count = 0
         self.val_only = model_params.get('val_only', False)
         self.zarr_save_path = model_params.get('zarr_save_path', None)
         self.zarr_item_count = 0
@@ -489,6 +603,11 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
         #     base = self.zarr_save_path.replace('.zarr', '')
         #     self.zarr_paths = [f"{base}_temp1.zarr", f"{base}_temp2.zarr"]
     
+    def select_targets(self, target: torch.Tensor) -> torch.Tensor:
+        if target.ndim != 4 or target.shape[1] != 1:
+            raise ValueError("SAR GT must have one land/water channel")
+        return target
+
     def log_images(self, x, y, logits, prefix=""):
         import wandb
         """ Log batch images and preds using wandb """
@@ -573,18 +692,6 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
             else:
                 self.epoch_cms[problem_name] += cm_agg
             
-            # Debug: 印出混淆矩陣詳細資訊
-            if batch_idx == 0:
-                print(f"\n=== {problem_name} Confusion Matrix ===")
-                print(f"CM shape: {cm_agg.shape}")
-                print(f"CM:\n{cm_agg}")
-                print(f"  TP (pred=water, true=water) = cm[1,1] = {cm_agg[1,1]}")
-                print(f"  FP (pred=water, true=land)  = cm[1,0] = {cm_agg[1,0]}")  
-                print(f"  FN (pred=land, true=water)  = cm[0,1] = {cm_agg[0,1]}")
-                print(f"  TN (pred=land, true=land)   = cm[0,0] = {cm_agg[0,0]}")
-                print(f"  Precision = {cm_agg[1,1]} / ({cm_agg[1,1]} + {cm_agg[1,0]}) = {metrics.binary_precision(cm_agg):.4f}")
-                print(f"  Recall = {cm_agg[1,1]} / ({cm_agg[1,1]} + {cm_agg[0,1]}) = {metrics.binary_recall(cm_agg):.4f}")
-            
             self.log(f"val_Acc_{problem_name}", metrics.binary_accuracy(cm_agg))
             self.log(f"val_Precision_{problem_name}", metrics.binary_precision(cm_agg))
             self.log(f"val_Recall_{problem_name}", metrics.binary_recall(cm_agg))
@@ -606,23 +713,4 @@ class EDL_SAR_Unet(EDL_ML4FloodsModel):
         self.epoch_cms = {}
 
     def on_validation_epoch_end(self):
-        for i in range(len(self.label_names)):
-            problem_name = "_".join(self.label_names[i, 1:])
-            if problem_name in self.epoch_cms:
-                cm_total = self.epoch_cms[problem_name]
-                
-                self.log(f"val_Global_Acc_{problem_name}", metrics.binary_accuracy(cm_total))
-                self.log(f"val_Global_Precision_{problem_name}", metrics.binary_precision(cm_total))
-                self.log(f"val_Global_Recall_{problem_name}", metrics.binary_recall(cm_total))
-                
-                # Calculate Global IoU
-                # cm_total is (2, 2), unsqueeze to (1, 2, 2) to mimic batch for calculate_iou
-                iou_dict = metrics.calculate_iou(cm_total.unsqueeze(0), self.label_names[i, 1:])
-                for k, v in iou_dict.items():
-                    self.log(f"val_Global_iou_{problem_name} {k}", v)
-                iou_hand = cm_total[1,1] / (cm_total[1,1] + cm_total[1,0] + cm_total[0,1])
-                self.log(f"val_Global_iou_hand_{problem_name}", iou_hand)
-        
-        # Clear memory
-        self.epoch_cms = {}
-        
+        super().on_validation_epoch_end()
