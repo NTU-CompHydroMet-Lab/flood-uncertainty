@@ -118,6 +118,17 @@ TERRAMIND_V1_S2_STATS: Dict[str, tuple] = {
 }
 
 
+#: TerraMind v1 pre-training statistics for the Sentinel-1 modalities (VV, VH), in dB
+#: (terratorch 1.2.11 ``terramind_register.v1_pretraining_mean/std``).
+TERRAMIND_V1_S1_STATS: Dict[str, tuple] = {
+    "S1GRD": ([-12.599, -20.293], [5.195, 5.890]),
+    "S1RTC": ([-10.93, -17.329], [4.391, 4.459]),
+}
+
+#: How an incoming S1 tensor was normalised by its data loader (see :class:`S1InputRenormalizer`).
+S1_INPUT_UNITS = ("linear_zscore", "sen1_scaled_db_zscore")
+
+
 def terramind_bands_from_channel_configuration(channel_configuration: str, modality: str = "S2L2A") -> List[str]:
     """Map an ml4floods ``channel_configuration`` (e.g. ``"bgriswirs"``) to TerraMind band names of ``modality``.
 
@@ -169,6 +180,45 @@ class InputRenormalizer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return (x * self.ml_std + self.ml_mean - self.tm_mean) / self.tm_std
+
+
+class S1InputRenormalizer(nn.Module):
+    """Map a loader-normalised Sentinel-1 VV/VH tensor to TerraMind's dB z-score.
+
+    ``units`` says how the loader produced ``x`` from the backscatter, with its per-channel ``mean`` / ``std``:
+
+    * ``"linear_zscore"`` (KuroSiwo GRD): ``x = (clamp(linear power) - mean) / std``. Undo the z-score, floor
+      the linear power at ``linear_floor`` (``1e-4`` = -40 dB; zeros / no-data would be -inf) and take
+      ``10 * log10``.
+    * ``"sen1_scaled_db_zscore"`` (Sen1Floods11 official): ``x = ((clip(dB, -50, 1) + 50) / 51 - mean) / std``.
+
+    Then ``(dB - tm_mean) / tm_std`` with the TerraMind S1 pre-training statistics.
+    """
+
+    def __init__(self, modality: str, units: str, mean: Sequence[float], std: Sequence[float], linear_floor: float = 1e-4):
+        super().__init__()
+        if modality not in TERRAMIND_V1_S1_STATS:
+            raise ValueError(f"Unsupported Sentinel-1 modality '{modality}' (expected one of {list(TERRAMIND_V1_S1_STATS)})")
+        if units not in S1_INPUT_UNITS:
+            raise ValueError(f"Unknown S1 input units '{units}' (expected one of {S1_INPUT_UNITS})")
+        if len(mean) != 2 or len(std) != 2:
+            raise ValueError("S1 input statistics must have one entry per channel (VV, VH)")
+        self.units = units
+        self.linear_floor = float(linear_floor)
+        view = lambda a: torch.as_tensor(a, dtype=torch.float32).view(1, -1, 1, 1)  # noqa: E731
+        tm_mean, tm_std = TERRAMIND_V1_S1_STATS[modality]
+        self.register_buffer("in_mean", view(mean))
+        self.register_buffer("in_std", view(std))
+        self.register_buffer("tm_mean", view(tm_mean))
+        self.register_buffer("tm_std", view(tm_std))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raw = x * self.in_std + self.in_mean
+        if self.units == "linear_zscore":
+            db = 10.0 * torch.log10(raw.clamp(min=self.linear_floor))
+        else:
+            db = raw * 51.0 - 50.0
+        return (db - self.tm_mean) / self.tm_std
 
 
 class SelectIndices(nn.Module):
@@ -302,7 +352,10 @@ class TerraMindBackbone(nn.Module):
         local_ckpt_path: offline ``.pt`` state dict; when set, ``pretrained`` is ignored.
         select_layers: 0-based encoder block indices to tap (4 required).
         freeze: set ``requires_grad=False`` on every encoder parameter.
-        renormalize_input: apply :class:`InputRenormalizer` (S2L2A / S2L1C only).
+        renormalize_input: apply :class:`InputRenormalizer` (S2L2A / S2L1C) or
+            :class:`S1InputRenormalizer` (S1GRD / S1RTC; needs ``s1_input``).
+        s1_input: for S1 modalities, how the loader normalised the tensor:
+            ``{"units": "linear_zscore" | "sen1_scaled_db_zscore", "mean": [vv, vh], "std": [vv, vh]}``.
         patch_size: TerraMind patch size (16 for v1).
         impl: ``"vendored"`` (default) or ``"terratorch"``; see :func:`_build_terramind_encoder`.
         tim_modalities: e.g. ``["LULC"]`` to enable TiM; requires the full pre-trained band set of
@@ -325,6 +378,7 @@ class TerraMindBackbone(nn.Module):
         impl: str = "vendored",
         tim_modalities: Optional[Sequence[str]] = None,
         tim_temps: float = 0.0,
+        s1_input: Optional[Dict] = None,
     ):
         super().__init__()
         if len(modalities) != 1:
@@ -341,7 +395,15 @@ class TerraMindBackbone(nn.Module):
             band_list = terramind_bands_from_channel_configuration(channel_configuration, self.modality)
         self.bands = band_list
 
-        if renormalize_input:
+        is_s1 = self.modality in TERRAMIND_V1_S1_STATS
+        if renormalize_input and is_s1:
+            if not s1_input:
+                raise ValueError("renormalize_input for an S1 modality needs s1_input={'units', 'mean', 'std'}")
+            self.renorm: nn.Module = S1InputRenormalizer(
+                self.modality, s1_input["units"], s1_input["mean"], s1_input["std"],
+                linear_floor=s1_input.get("linear_floor", 1e-4),
+            )
+        elif renormalize_input:
             if not is_s2 or channel_configuration is None or band_list is None:
                 raise ValueError(
                     f"renormalize_input requires modality in {list(TERRAMIND_V1_S2_STATS)} and channel_configuration"

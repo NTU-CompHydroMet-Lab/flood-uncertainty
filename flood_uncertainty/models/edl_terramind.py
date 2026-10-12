@@ -13,6 +13,11 @@ Everything else (EDL loss, KL annealing, validation metrics, wandb images,
 zarr dump in ``validate_only``) is inherited untouched, so the training
 script ``scripts/train/train_edl_terramind.py`` is a near-verbatim copy of
 ``train_edl.py``.
+
+``EDL_TerraMind_SAR`` does the same for the single-task SAR model
+(:class:`EDL_SAR_Unet`, KuroSiwo / Sen1Floods11 VV-VH): it runs the parent
+constructor unchanged (so new SAR state stays in sync with upstream) and then
+swaps ``self.network`` for a TerraMind S1 network.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import torch
 from ml4floods.models.utils.configuration import AttrDict
 from ml4floods.models.worldfloods_model import METRIC_MODE
 
-from flood_uncertainty.models.edl import EDL_ML4FloodsModel
+from flood_uncertainty.models.edl import EDL_ML4FloodsModel, EDL_SAR_Unet
 from flood_uncertainty.models.terramind_unet import build_terramind_unet
 
 
@@ -67,3 +72,25 @@ class EDL_TerraMind_ML4FloodsModel(EDL_ML4FloodsModel):
             optimizer, mode=METRIC_MODE[monitor], factor=self.lr_decay, patience=self.lr_patience
         )
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": monitor}
+
+
+class EDL_TerraMind_SAR(EDL_SAR_Unet):
+    """Single-task (land/water) SAR EDL on a TerraMind v1 encoder (``backbone_modalities: ["S1GRD"]``).
+
+    Inherits the SAR training / validation steps, including the epoch-level ``val_Global_iou_*``.
+    The S1 input conversion (loader normalisation -> dB -> TerraMind statistics) is configured with
+    ``backbone_s1_input`` (see :class:`S1InputRenormalizer`).
+    """
+
+    def __init__(self, model_params: AttrDict, normalized_data: bool = False):
+        super().__init__(_with_unet_architecture(model_params), normalized_data=normalized_data)
+        self.save_hyperparameters({"model_params": model_params, "normalized_data": normalized_data})
+        h_params_dict = model_params.get("hyperparameters", {})
+        modality = list(h_params_dict.get("backbone_modalities", ["S1GRD"]))
+        if not modality or not modality[0].startswith("S1"):
+            raise ValueError(f"EDL_TerraMind_SAR expects an S1 backbone modality, got {modality}")
+        # parent built a UNet from the same hyper-parameters; replace it (2 evidence channels for 1 task)
+        self.network = build_terramind_unet(h_params_dict, n_class=2 * self.num_class)
+        self.backbone_lr_mult = float(h_params_dict.get("backbone_lr_mult", 0.1))
+
+    configure_optimizers = EDL_TerraMind_ML4FloodsModel.configure_optimizers

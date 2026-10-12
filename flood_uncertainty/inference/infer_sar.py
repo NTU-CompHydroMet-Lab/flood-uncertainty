@@ -19,7 +19,14 @@ def load_sar_model(config: Any, weights_path: str | None = None) -> EDL_SAR_Unet
         raise ValueError("A SAR checkpoint path is required")
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("state_dict", checkpoint)
-    model = EDL_SAR_Unet(config.model_params, normalized_data=False)
+    if config.model_params.hyperparameters.get("model_type") == "edl_terramind":
+        from flood_uncertainty.models.edl_terramind import EDL_TerraMind_SAR
+
+        # weights come from the checkpoint; do not fetch the HF TerraMind weights first
+        config.model_params.hyperparameters["backbone_pretrained"] = False
+        model = EDL_TerraMind_SAR(config.model_params, normalized_data=False)
+    else:
+        model = EDL_SAR_Unet(config.model_params, normalized_data=False)
     model.load_state_dict(state_dict)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return model.to(device).eval()
