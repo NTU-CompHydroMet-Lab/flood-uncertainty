@@ -1,6 +1,7 @@
 import copy
 import json
-from typing import Any, Dict
+import os
+from typing import Any, Dict, List, Tuple
 
 from ml4floods.data.worldfloods.configs import CHANNELS_CONFIGURATIONS
 from ml4floods.models.utils.configuration import AttrDict
@@ -96,6 +97,38 @@ def _validate_no_legacy_mode_flags(raw: Dict[str, Any], config_path: str) -> Non
             )
 
 
+PATH_REMAP_ENV = "FLOOD_PATH_REMAP"
+
+
+def _parse_path_remap(spec: str) -> List[Tuple[str, str]]:
+    """Parse ``"old=new;old2=new2"`` into (old, new) pairs, longest prefix first."""
+    pairs = []
+    for item in spec.split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(f"{PATH_REMAP_ENV} entry must be 'old=new', got {item!r}")
+        old, new = (part.strip().rstrip("/") for part in item.split("=", 1))
+        if not old or not new:
+            raise ValueError(f"{PATH_REMAP_ENV} entry has an empty side: {item!r}")
+        pairs.append((old, new))
+    return sorted(pairs, key=lambda pair: len(pair[0]), reverse=True)
+
+
+def _remap_paths(value: Any, pairs: List[Tuple[str, str]]) -> Any:
+    """Rewrite every string that starts with a remapped prefix (on a path boundary)."""
+    if isinstance(value, dict):
+        return {key: _remap_paths(item, pairs) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_remap_paths(item, pairs) for item in value]
+    if isinstance(value, str):
+        for old, new in pairs:
+            if value == old or value.startswith(old + "/"):
+                return new + value[len(old):]
+    return value
+
+
 def _apply_runtime_mode_flags(config_dict: Dict[str, Any], mode: str) -> Dict[str, Any]:
     if mode not in RUNTIME_MODE_FLAGS:
         raise ValueError(f"Unsupported mode: {mode}")
@@ -120,6 +153,11 @@ def load_mode_config(config_path: str, mode: str = "train") -> AttrDict:
     _validate_no_legacy_mode_flags(raw, config_path)
 
     merged = _deep_merge(raw["shared"], raw[mode])
+    # Lets the same configs run on another machine (e.g. NCHC Nano5) without
+    # editing the hard-coded /home/NAS/... paths; a no-op when the env var is unset.
+    remap_spec = os.environ.get(PATH_REMAP_ENV, "")
+    if remap_spec:
+        merged = _remap_paths(merged, _parse_path_remap(remap_spec))
     normalized = _normalize_and_validate(merged)
     with_runtime_flags = _apply_runtime_mode_flags(normalized, mode)
     return AttrDict.from_nested_dicts(with_runtime_flags)
