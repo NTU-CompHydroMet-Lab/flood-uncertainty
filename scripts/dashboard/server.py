@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Local project dashboard: experiment records, training progress, project status.
 
-Standard library only (no project dependencies), so it runs with any Python >= 3.8:
+Standard library only, so it runs with any Python >= 3.8; the per-image sample view (samples.py) additionally
+needs numpy / rasterio / Pillow, so prefer the project venv:
 
-    python scripts/dashboard/server.py                 # http://127.0.0.1:8765
+    .venv/bin/python scripts/dashboard/server.py       # http://127.0.0.1:8765
     python scripts/dashboard/server.py --port 9000 --root /path/to/flood-uncertainty
 
 Everything is read live from disk on each request:
@@ -327,6 +328,7 @@ def scan_results():
                 "precision": tp / (tp + fp) if tp + fp else None,
                 "recall": tp / (tp + fn) if tp + fn else None,
                 "path": rel(f),
+                "dir": str(f.parent.relative_to(res_root)),
                 "updated": f.stat().st_mtime,
             })
         out = []
@@ -338,6 +340,64 @@ def scan_results():
     if not res_root.is_dir():
         return []
     return cached(("results", res_root.stat().st_mtime, int(time.time() // 30)), 30, build)
+
+
+def _result_dir(rel_dir):
+    """artifacts/results/<rel_dir> holding a metrics_*.csv; rejects absolute paths and '..'."""
+    res_root = ROOT / "artifacts" / "results"
+    p = Path(rel_dir or "")
+    if not rel_dir or p.is_absolute() or ".." in p.parts:
+        raise FileNotFoundError(rel_dir)
+    d = res_root / p
+    metrics = sorted(d.glob("metrics_*.csv")) if d.is_dir() else []
+    if not metrics:
+        raise FileNotFoundError(rel_dir)
+    return d, metrics[0]
+
+
+def _per_image(metrics_csv):
+    items = []
+    with open(metrics_csv, newline="") as fh:
+        for row in csv.DictReader(fh):
+            name = row.get("filename")
+            if not name or name.startswith(("OVERALL", "AVERAGE")):
+                continue
+            tp, tn, fp, fn = (fnum(row.get(k)) for k in ("TP", "TN", "FP", "FN"))
+            if None in (tp, tn, fp, fn):
+                continue
+            items.append({"file": name, "TP": tp, "TN": tn, "FP": fp, "FN": fn,
+                          "iou": fnum(row.get("iou")), "precision": fnum(row.get("precision")),
+                          "recall": fnum(row.get("recall"))})
+    return items
+
+
+def api_samples(q):
+    rel_dir = q.get("dir", [""])[0]
+    d, metrics = _result_dir(rel_dir)
+    items = _per_image(metrics)
+    try:
+        import samples  # noqa: F401  (numpy / rasterio / Pillow)
+        render_ok, render_error = True, None
+    except ImportError as e:
+        render_ok, render_error = False, f"{e}（請用 .venv/bin/python 啟動 server 才能畫圖）"
+    return {"dir": rel_dir, "subset": d.parent.name, "tag": d.name, "name": tag_display(d.name),
+            "items": items, "render": render_ok, "render_error": render_error}
+
+
+def api_image(q):
+    rel_dir, image, kind = q.get("dir", [""])[0], q.get("file", [""])[0], q.get("kind", ["cm"])[0]
+    try:
+        max_px = max(0, min(4096, int(q.get("max", ["900"])[0])))
+    except ValueError:
+        max_px = 900
+    d, metrics = _result_dir(rel_dir)
+    if image not in {it["file"] for it in _per_image(metrics)} or kind not in ("rgb", "gt", "cm"):
+        raise FileNotFoundError(image)
+    import samples
+
+    crop = q.get("crop", ["1"])[0] != "0"
+    key = ("img", str(d), image, kind, max_px, crop, metrics.stat().st_mtime)
+    return cached(key, 3600, lambda: samples.render(d, image, kind, max_px or 4096, crop))
 
 
 # --------------------------------------------------------------------------- training processes
@@ -635,6 +695,7 @@ ROUTES = {
     "/api/run": lambda q: run_curves(q.get("dir", [""])[0]),
     "/api/results": lambda q: {"groups": scan_results(), "now": time.time()},
     "/api/project": lambda q: api_project(),
+    "/api/samples": api_samples,
 }
 
 
@@ -654,6 +715,15 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             return self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if u.path == "/api/image":
+            try:
+                return self._send(200, api_image(parse_qs(u.query)), "image/png")
+            except FileNotFoundError as e:
+                return self._send(404, {"error": f"not found: {e}"})
+            except ImportError as e:
+                return self._send(501, {"error": f"{e}（請用 .venv/bin/python 啟動 server）"})
+            except Exception as e:
+                return self._send(500, {"error": f"{type(e).__name__}: {e}"})
         fn = ROUTES.get(u.path)
         if not fn:
             return self._send(404, {"error": "not found"})

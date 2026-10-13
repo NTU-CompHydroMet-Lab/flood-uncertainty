@@ -206,15 +206,17 @@ encoder 原始碼 vendor 自 terratorch 1.2.11（`flood_uncertainty/models/backb
 ## 10. 本機儀表板
 
 ```bash
-python scripts/dashboard/server.py            # 開 http://127.0.0.1:8765
-python scripts/dashboard/server.py --port 9000 --root /path/to/flood-uncertainty
+.venv/bin/python scripts/dashboard/server.py            # 開 http://127.0.0.1:8765
+.venv/bin/python scripts/dashboard/server.py --port 9000 --root /path/to/flood-uncertainty
 ```
 
-只用 Python 標準庫，不需要專案依賴；每次開頁面都即時讀檔：
+主程式只用 Python 標準庫；「樣本」畫圖需要 numpy / rasterio / Pillow，所以建議用專案的 `.venv` 啟動。每次開頁面都即時讀檔：
 
 - **訓練進度**：執行中的 `scripts/train/*.py`（epoch / batch / it/s / 預估剩餘時間，取自它的 stdout log）、val 指標與 train loss 曲線、GPU、`artifacts/runs/*.sh` 排程腳本與 log。
 - **實驗紀錄**：`artifacts/models/*/lightning_logs` 的每個實驗（名稱取自 `configurations/**` 的檔名），勾選最多 8 組疊圖比較。
 - **評估結果**：`artifacts/results/**/metrics_*.csv`，依資料集 / subset 顯示 pooled（OVERALL）與平均 IoU、precision、recall。
+  下方「樣本」逐張顯示 RGB、GT 與 confusion map（取自 `eval_metrics.py --save_tif` 的 `cm_*.tif`；TP 藍 / FP 橘 / FN 綠 / TN 淺灰 / 無效 灰）
+  和 2×2 confusion matrix，可加一個對照模型並排、依 IoU 或兩模型差距排序、裁到有標註的範圍，點圖開原始解析度。
 - **專案狀態**：git branch / commit / worktree / stash、GitHub PR 與 issue（需 `gh auth login`）、在背景執行 `pytest tests/`（CPU、HF 離線，結果存在 `artifacts/dashboard/`）。
 
 預設只綁定 127.0.0.1。從自己的電腦看：`ssh -L 8765:localhost:8765 <主機>` 後開 http://localhost:8765（VS Code Remote 會自動轉送 port）。
