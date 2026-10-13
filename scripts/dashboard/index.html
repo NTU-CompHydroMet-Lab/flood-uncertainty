@@ -111,6 +111,7 @@ table.cm { width: auto; font-size: 12px; }
 table.cm td, table.cm th { padding: 4px 8px; border: 1px solid var(--grid); }
 .k-tp { background: #2a78d6; } .k-fp { background: #eb6834; } .k-fn { background: #1baf7a; }
 .k-tn { background: #f0efec; box-shadow: inset 0 0 0 1px var(--axis); } .k-na { background: #898781; }
+.k-da { background: #6250d6; } .k-db { background: #eda100; } .k-both { background: #2b2b29; box-shadow: inset 0 0 0 1px var(--axis); }
 details summary { cursor: pointer; color: var(--ink-2); margin: 6px 0; }
 @media (max-width: 640px) { .tile .v { font-size: 17px; } main { padding: 12px; } }
 </style>
@@ -438,7 +439,7 @@ async function renderResults() {
 }
 
 // ---------------------------------------------------------------- per-image samples with confusion maps
-let smp = Object.assign({ a: null, b: "", sort: "iou-asc", n: 4, crop: true }, store.get("samples", {}));
+let smp = Object.assign({ a: null, b: null, sort: "diff", n: 4, crop: true }, store.get("samples2", {}));
 const CM_KEYS = [["tp", "TP 正確判為水"], ["fp", "FP 誤判為水"], ["fn", "FN 漏判的水"], ["tn", "TN 正確判為非水"], ["na", "無效 / 無資料"]];
 function cmTable(it, title) {
   const tot = it.TP + it.TN + it.FP + it.FN || 1;
@@ -447,55 +448,77 @@ function cmTable(it, title) {
     <table class="cm"><thead><tr><th></th><th class="num">預測 水</th><th class="num">預測 非水</th></tr></thead><tbody>
     <tr><th>GT 水</th>${c("tp", it.TP)}${c("fn", it.FN)}</tr><tr><th>GT 非水</th>${c("fp", it.FP)}${c("tn", it.TN)}</tr></tbody></table></div>`;
 }
+function defaultPair(rows) {
+  // A: the UNet baseline when present; B: the best-ranked model of a different family (rows are sorted by IoU)
+  const a = rows.find(r => r.name.startsWith("unet_baseline")) || rows[0];
+  const fam = n => n.split("@")[0].split("_")[0];
+  const b = rows.find(r => r.dir !== a.dir && fam(r.name) !== fam(a.name)) || rows.find(r => r.dir !== a.dir);
+  return [a.dir, b ? b.dir : null];
+}
 async function renderSamples(g) {
   const box = $("#samplesCard");
-  if (!g.rows.some(r => r.dir === smp.a)) smp.a = g.rows[0].dir;
-  if (smp.b && !g.rows.some(r => r.dir === smp.b)) smp.b = "";
-  const opt = (sel, withNone) => (withNone ? `<option value="">（無）</option>` : "") +
-    g.rows.map(r => `<option value="${esc(r.dir)}" ${r.dir === sel ? "selected" : ""}>${esc(r.name)}</option>`).join("");
+  const has = d => g.rows.some(r => r.dir === d);
+  const [da, db] = defaultPair(g.rows);
+  if (!has(smp.a)) smp.a = da;
+  if (!has(smp.b) || smp.b === smp.a) smp.b = db && db !== smp.a ? db : (g.rows.find(r => r.dir !== smp.a) || {}).dir || null;
+  const opt = (sel, skip) => g.rows.filter(r => r.dir !== skip)
+    .map(r => `<option value="${esc(r.dir)}" ${r.dir === sel ? "selected" : ""}>${esc(r.name)}</option>`).join("");
   const sortOpt = (v, t) => `<option value="${v}" ${smp.sort === v ? "selected" : ""}>${t}</option>`;
-  box.innerHTML = `<h2>樣本與 confusion map <span class="sub">${esc(g.dataset)} / ${esc(g.subset)}</span></h2>
+  const nameOf = d => (g.rows.find(r => r.dir === d) || {}).name || d;
+  box.innerHTML = `<h2>樣本比較 <span class="sub">${esc(g.dataset)} / ${esc(g.subset)} · 同一張影像上兩個模型的 confusion map</span></h2>
     <div class="filters">
-      <label>模型 <select id="smpA">${opt(smp.a, false)}</select></label>
-      <label>對照 <select id="smpB">${opt(smp.b, true)}</select></label>
-      <label>排序 <select id="smpSort">${sortOpt("iou-asc", "IoU 低 → 高（先看錯最多的）")}${sortOpt("iou-desc", "IoU 高 → 低")}
-        ${sortOpt("diff", "兩模型 IoU 差距最大")}${sortOpt("name", "檔名")}</select></label>
+      <label>模型 A <select id="smpA">${opt(smp.a, smp.b)}</select></label>
+      <label>模型 B <select id="smpB">${smp.b ? opt(smp.b, smp.a) : `<option>（只有一個模型）</option>`}</select></label>
+      <button class="btn" id="smpSwap" title="交換 A / B" ${smp.b ? "" : "disabled"}>⇄</button>
+      <label>排序 <select id="smpSort">${sortOpt("diff", "IoU 差距最大")}${sortOpt("b-better", "B 比 A 好最多")}${sortOpt("a-better", "A 比 B 好最多")}
+        ${sortOpt("iou-asc", "A 的 IoU 低 → 高")}${sortOpt("name", "檔名")}</select></label>
       <label class="chk"><input type="checkbox" id="smpCrop" ${smp.crop ? "checked" : ""}>裁到有標註的範圍</label>
       <label>顯示 <select id="smpN">${[4, 8, 0].map(n => `<option value="${n}" ${smp.n === n ? "selected" : ""}>${n || "全部"}</option>`).join("")}</select></label>
     </div>
-    <div class="legend">${CM_KEYS.map(([k, t]) => `<span><span class="swatch k-${k}"></span>${t}</span>`).join("")}</div>
+    <div class="legend"><b class="sub">Confusion</b>${CM_KEYS.map(([k, t]) => `<span><span class="swatch k-${k}"></span>${t}</span>`).join("")}</div>
+    ${smp.b ? `<div class="legend"><b class="sub">差異圖</b><span><span class="swatch k-da"></span>只有 A 對（${esc(nameOf(smp.a))}）</span>
+      <span><span class="swatch k-db"></span>只有 B 對（${esc(nameOf(smp.b))}）</span><span><span class="swatch k-both"></span>兩個都錯</span>
+      <span><span class="swatch k-tn"></span>兩個都對</span><span><span class="swatch k-na"></span>無效</span></div>` : ""}
     <div id="smpList" class="samples"><div class="empty">載入中…</div></div>
     <div class="note">confusion map 取自評估時存下的 cm_*.tif（門檻 0.5，和上表指標是同一份計算）；縮圖用最近鄰取樣，點圖可開原始解析度。</div>`;
-  const save = () => store.set("samples", smp);
+  const save = () => store.set("samples2", smp);
   $("#smpA").addEventListener("change", e => { smp.a = e.target.value; save(); renderSamples(g); });
   $("#smpB").addEventListener("change", e => { smp.b = e.target.value; save(); renderSamples(g); });
+  $("#smpSwap").addEventListener("click", () => { [smp.a, smp.b] = [smp.b, smp.a]; save(); renderSamples(g); });
   $("#smpSort").addEventListener("change", e => { smp.sort = e.target.value; save(); renderSamples(g); });
   $("#smpN").addEventListener("change", e => { smp.n = +e.target.value; save(); renderSamples(g); });
   $("#smpCrop").addEventListener("change", e => { smp.crop = e.target.checked; save(); renderSamples(g); });
   let A, B = null;
   try {
-    A = await api("/api/samples?dir=" + encodeURIComponent(smp.a));
-    if (smp.b) B = await api("/api/samples?dir=" + encodeURIComponent(smp.b));
+    [A, B] = await Promise.all([api("/api/samples?dir=" + encodeURIComponent(smp.a)),
+      smp.b ? api("/api/samples?dir=" + encodeURIComponent(smp.b)) : null]);
   } catch (e) { $("#smpList").innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
   if (!A.render) { $("#smpList").innerHTML = `<div class="err">${esc(A.render_error)}</div>`; return; }
   const bBy = B ? Object.fromEntries(B.items.map(i => [i.file, i])) : {};
-  let items = A.items.map(i => ({ a: i, b: bBy[i.file] || null }));
-  const iou = x => x?.iou ?? 0;
-  if (smp.sort === "iou-asc") items.sort((x, y) => iou(x.a) - iou(y.a));
-  else if (smp.sort === "iou-desc") items.sort((x, y) => iou(y.a) - iou(x.a));
-  else if (smp.sort === "diff") items.sort((x, y) => Math.abs(iou(y.a) - iou(y.b)) - Math.abs(iou(x.a) - iou(x.b)));
+  let items = A.items.map(i => ({ a: i, b: bBy[i.file] || null })).filter(x => !B || x.b);
+  const iou = x => x?.iou ?? 0, gap = x => iou(x.b) - iou(x.a);
+  if (smp.sort === "diff") items.sort((x, y) => Math.abs(gap(y)) - Math.abs(gap(x)));
+  else if (smp.sort === "b-better") items.sort((x, y) => gap(y) - gap(x));
+  else if (smp.sort === "a-better") items.sort((x, y) => gap(x) - gap(y));
+  else if (smp.sort === "iou-asc") items.sort((x, y) => iou(x.a) - iou(y.a));
   else items.sort((x, y) => x.a.file.localeCompare(y.a.file));
   if (smp.n) items = items.slice(0, smp.n);
-  const img = (dir, file, kind, cap) => {
-    const q = `dir=${encodeURIComponent(dir)}&file=${encodeURIComponent(file)}&kind=${kind}&crop=${smp.crop ? 1 : 0}`;
+  const img = (q0, cap) => {
+    const q = `${q0}&crop=${smp.crop ? 1 : 0}`;
     return `<div class="panel"><figure><a href="/api/image?${q}&max=0" target="_blank" rel="noopener">
-      <img loading="lazy" src="/api/image?${q}&max=700" alt="${esc(cap)}: ${esc(file)}"></a><figcaption>${esc(cap)}</figcaption></figure></div>`;
+      <img loading="lazy" src="/api/image?${q}&max=700" alt="${esc(cap)}"></a><figcaption>${esc(cap)}</figcaption></figure></div>`;
   };
-  $("#smpList").innerHTML = items.map(({ a, b }) => `<div class="sample">
-      <h4><span class="mono">${esc(a.file)}</span><span class="sub">${esc(A.name)} IoU ${fmt(a.iou)}${b ? ` · ${esc(B.name)} IoU ${fmt(b.iou)}` : ""}</span></h4>
-      <div class="panels">${img(A.dir, a.file, "rgb", "RGB（B4/B3/B2）")}${img(A.dir, a.file, "gt", "GT（藍 = 水）")}
-        ${img(A.dir, a.file, "cm", "Confusion：" + A.name)}${b ? img(B.dir, b.file, "cm", "Confusion：" + B.name) : ""}</div>
-      <div class="cms">${cmTable(a, A.name)}${b ? cmTable(b, B.name) : ""}</div></div>`).join("") || `<div class="empty">沒有逐張結果。</div>`;
+  const base = (dir, file, kind) => `dir=${encodeURIComponent(dir)}&file=${encodeURIComponent(file)}&kind=${kind}`;
+  $("#smpList").innerHTML = items.map(({ a, b }) => {
+    const d = b ? gap({ a, b }) : null;
+    const delta = d == null ? "" : ` · <b>Δ IoU（B − A）${d >= 0 ? "+" : "−"}${Math.abs(100 * d).toFixed(1)} pt</b>`;
+    return `<div class="sample">
+      <h4><span class="mono">${esc(a.file)}</span><span class="sub">A ${esc(A.name)} ${fmt(a.iou)}${b ? ` · B ${esc(B.name)} ${fmt(b.iou)}` : ""}${delta}</span></h4>
+      <div class="panels">${img(base(A.dir, a.file, "rgb"), "RGB（B4/B3/B2）")}${img(base(A.dir, a.file, "gt"), "GT（藍 = 水）")}
+        ${img(base(A.dir, a.file, "cm"), "A：" + A.name)}${b ? img(base(B.dir, b.file, "cm"), "B：" + B.name) : ""}
+        ${b ? img(base(A.dir, a.file, "diff") + `&dir2=${encodeURIComponent(B.dir)}`, "差異：A 對 / B 對") : ""}</div>
+      <div class="cms">${cmTable(a, "A：" + A.name)}${b ? cmTable(b, "B：" + B.name) : ""}</div></div>`;
+  }).join("") || `<div class="empty">沒有兩個模型都有的逐張結果。</div>`;
   $("#smpList").querySelectorAll("img").forEach(im => im.addEventListener("error", async () => {
     try {
       const r = await fetch(im.src); const j = await r.json();

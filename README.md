@@ -215,8 +215,9 @@ encoder 原始碼 vendor 自 terratorch 1.2.11（`flood_uncertainty/models/backb
 - **訓練進度**：執行中的 `scripts/train/*.py`（epoch / batch / it/s / 預估剩餘時間，取自它的 stdout log）、val 指標與 train loss 曲線、GPU、`artifacts/runs/*.sh` 排程腳本與 log。
 - **實驗紀錄**：`artifacts/models/*/lightning_logs` 的每個實驗（名稱取自 `configurations/**` 的檔名），勾選最多 8 組疊圖比較。
 - **評估結果**：`artifacts/results/**/metrics_*.csv`，依資料集 / subset 顯示 pooled（OVERALL）與平均 IoU、precision、recall。
-  下方「樣本」逐張顯示 RGB、GT 與 confusion map（取自 `eval_metrics.py --save_tif` 的 `cm_*.tif`；TP 藍 / FP 橘 / FN 綠 / TN 淺灰 / 無效 灰）
-  和 2×2 confusion matrix，可加一個對照模型並排、依 IoU 或兩模型差距排序、裁到有標註的範圍，點圖開原始解析度。
+  下方「樣本比較」逐張並排兩個模型（預設 A = `unet_baseline`、B = 排名最高的其他模型）：RGB、GT、A 與 B 的 confusion map
+  （取自 `eval_metrics.py --save_tif` 的 `cm_*.tif`；TP 藍 / FP 橘 / FN 綠 / TN 淺灰 / 無效 灰）、差異圖（只有 A 對 紫 / 只有 B 對 黃 / 兩個都錯 黑），
+  以及兩個模型各自的 2×2 confusion matrix 與 Δ IoU；可依 IoU 差距排序、裁到有標註的範圍，點圖開原始解析度。
 - **專案狀態**：git branch / commit / worktree / stash、GitHub PR 與 issue（需 `gh auth login`）、在背景執行 `pytest tests/`（CPU、HF 離線，結果存在 `artifacts/dashboard/`）。
 
 預設只綁定 127.0.0.1。從自己的電腦看：`ssh -L 8765:localhost:8765 <主機>` 後開 http://localhost:8765（VS Code Remote 會自動轉送 port）。

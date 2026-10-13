@@ -391,11 +391,17 @@ def api_image(q):
     except ValueError:
         max_px = 900
     d, metrics = _result_dir(rel_dir)
-    if image not in {it["file"] for it in _per_image(metrics)} or kind not in ("rgb", "gt", "cm"):
+    if image not in {it["file"] for it in _per_image(metrics)} or kind not in ("rgb", "gt", "cm", "diff"):
         raise FileNotFoundError(image)
     import samples
 
     crop = q.get("crop", ["1"])[0] != "0"
+    if kind == "diff":  # model A (dir) vs model B (dir2) on the same image
+        d2, metrics2 = _result_dir(q.get("dir2", [""])[0])
+        if image not in {it["file"] for it in _per_image(metrics2)}:
+            raise FileNotFoundError(image)
+        key = ("diff", str(d), str(d2), image, max_px, crop, metrics.stat().st_mtime, metrics2.stat().st_mtime)
+        return cached(key, 3600, lambda: samples.render_diff(d, d2, image, max_px or 4096, crop))
     key = ("img", str(d), image, kind, max_px, crop, metrics.stat().st_mtime)
     return cached(key, 3600, lambda: samples.render(d, image, kind, max_px or 4096, crop))
 

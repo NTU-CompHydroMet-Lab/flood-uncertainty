@@ -21,6 +21,10 @@ from rasterio.windows import Window
 # TN is a light neutral so errors stand out; invalid is muted gray.
 CM_COLORS = np.array([[0x89, 0x87, 0x81], [0xf0, 0xef, 0xec], [0xeb, 0x68, 0x34], [0x1b, 0xaf, 0x7a],
                       [0x2a, 0x78, 0xd6]], dtype=np.uint8)
+# Model A vs B: invalid / both right / only A right (violet) / only B right (yellow) / both wrong (near-black).
+# Violet and yellow are not used in CM_COLORS, so this panel never reads as a TP/FP/FN map.
+DIFF_COLORS = np.array([[0x89, 0x87, 0x81], [0xf0, 0xef, 0xec], [0x62, 0x50, 0xd6], [0xed, 0xa1, 0x00],
+                        [0x2b, 0x2b, 0x29]], dtype=np.uint8)
 # GT panel: invalid / land / water
 GT_COLORS = np.array([[0x89, 0x87, 0x81], [0xf0, 0xef, 0xec], [0x2a, 0x78, 0xd6]], dtype=np.uint8)
 RGB_BANDS = (4, 3, 2)  # Sentinel-2 B4, B3, B2 (1-based) in the 13-band WorldFloods S2 tif
@@ -142,6 +146,27 @@ def render(result_dir, image, kind, max_px=900, crop=False):
             rgb = GT_COLORS[gt]
         else:
             raise ValueError(f"unknown kind {kind}")
+    return _png(rgb)
+
+
+def render_diff(dir_a, dir_b, image, max_px=900, crop=False):
+    """Where two models disagree: 0 invalid, 1 both right, 2 only A right, 3 only B right, 4 both wrong.
+    Both maps are read on the same window (the GT-valid area is model independent)."""
+    window = labeled_window(dir_a, image) if crop else None
+    a, b = cm_map(dir_a, image, max_px, window), cm_map(dir_b, image, max_px, window)
+    if a.shape != b.shape:
+        b = np.array(Image.fromarray(b).resize(a.shape[::-1], Image.NEAREST))
+    ok_a, ok_b = (a == 1) | (a == 4), (b == 1) | (b == 4)
+    valid = (a != 0) & (b != 0)
+    out = np.zeros(a.shape, np.uint8)
+    out[valid & ok_a & ok_b] = 1
+    out[valid & ok_a & ~ok_b] = 2
+    out[valid & ~ok_a & ok_b] = 3
+    out[valid & ~ok_a & ~ok_b] = 4
+    return _png(DIFF_COLORS[out])
+
+
+def _png(rgb):
     buf = io.BytesIO()
     Image.fromarray(rgb).save(buf, format="PNG", optimize=False)
     return buf.getvalue()
