@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flood Uncertainty 儀表板</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f2ee;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6; --bar: #2a78d6; --bar-bg: #e8eef8;
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --critical: #d03b3b;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --bar: #3987e5; --bar-bg: #1d2a3b;
+    --good-text: #0ca30c;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --bar: #3987e5; --bar-bg: #1d2a3b;
+  --good-text: #0ca30c;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--page); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1280px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 16px; margin: 0; font-weight: 650; }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav button { border: 0; background: none; color: var(--ink-2); padding: 6px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
+nav button:hover { background: var(--surface-2); }
+nav button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--border); font-weight: 600; }
+.spacer { flex: 1; }
+.meta { color: var(--muted); font-size: 12px; display: flex; gap: 10px; align-items: center; }
+.btn { border: 1px solid var(--border); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 5px 12px; font: inherit; cursor: pointer; }
+.btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: .5; cursor: default; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+section.tab { display: none; }
+section.tab.on { display: block; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; min-width: 0; }
+.card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 650; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card h3 { font-size: 13px; margin: 16px 0 8px; color: var(--ink-2); font-weight: 600; }
+.sub { color: var(--muted); font-size: 12px; font-weight: 400; }
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.tile { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.tile .k { color: var(--ink-2); font-size: 12px; }
+.tile .v { font-size: 20px; font-weight: 650; margin-top: 2px; }
+.tile .d { color: var(--muted); font-size: 12px; }
+.progress { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; margin: 4px 0 2px; }
+.progress > div { height: 100%; background: var(--accent); border-radius: 5px; }
+.plabel { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--ink-2); font-weight: 600; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--axis); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.sel td { background: var(--surface-2); }
+.scroll { overflow-x: auto; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.muted { color: var(--muted); }
+pre.log { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; margin: 0; max-height: 280px; overflow: auto;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; color: var(--ink-2); }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 8px; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink-2); white-space: nowrap; font-weight: 500; }
+.badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.badge.good .dot { background: var(--good); } .badge.good { color: var(--good-text); }
+.badge.crit .dot { background: var(--critical); } .badge.crit { color: var(--critical); }
+.badge.warn .dot { background: var(--warning); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; max-width: 100%; }
+label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); white-space: nowrap; display: none; z-index: 3; }
+.chart .tip b { font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+.empty { color: var(--muted); padding: 12px 0; }
+.err { color: var(--critical); }
+.barcell > div { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.barcell .track { width: 120px; height: 8px; flex: none; }
+.barcell .b { height: 8px; border-radius: 0 4px 4px 0; background: var(--bar); }
+.note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+details summary { cursor: pointer; color: var(--ink-2); margin: 6px 0; }
+@media (max-width: 640px) { .tile .v { font-size: 17px; } main { padding: 12px; } }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <h1>Flood Uncertainty</h1>
+  <nav role="tablist">
+    <button role="tab" data-tab="training">訓練進度</button>
+    <button role="tab" data-tab="experiments">實驗紀錄</button>
+    <button role="tab" data-tab="results">評估結果</button>
+    <button role="tab" data-tab="project">專案狀態</button>
+  </nav>
+  <span class="spacer"></span>
+  <span class="meta"><span id="updated">—</span>
+    <button class="btn" id="refresh" title="重新整理">重新整理</button>
+    <button class="btn" id="theme" title="切換深色 / 淺色">◐</button></span>
+</div></header>
+<main>
+  <section class="tab" id="tab-training"></section>
+  <section class="tab" id="tab-experiments"></section>
+  <section class="tab" id="tab-results"></section>
+  <section class="tab" id="tab-project"></section>
+</main>
+<script>
+"use strict";
+// ---------------------------------------------------------------- utilities
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("fu-dash:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("fu-dash:" + k, JSON.stringify(v)); } catch {} },
+};
+const fmt = (x, d = 4) => x == null || Number.isNaN(x) ? "—" : Number(x).toFixed(d);
+const pct = x => x == null ? "—" : (100 * x).toFixed(1) + "%";
+function ago(t) {
+  if (!t) return "—";
+  const s = Date.now() / 1000 - t;
+  if (s < 60) return Math.max(0, Math.round(s)) + " 秒前";
+  if (s < 3600) return Math.round(s / 60) + " 分鐘前";
+  if (s < 86400) return Math.round(s / 3600) + " 小時前";
+  return Math.round(s / 86400) + " 天前";
+}
+function dur(s) {
+  if (s == null) return "—";
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h} 小時 ${m} 分` : m ? `${m} 分 ${s % 60} 秒` : `${s} 秒`;
+}
+const hms = t => { if (!t || t.startsWith("-")) return null; const p = t.split(":").map(Number); return p.reduce((a, b) => a * 60 + b, 0); };
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const SERIES = n => `var(--s${(n % 8) + 1})`;
+const badge = (cls, text) => `<span class="badge ${cls}"><span class="dot"></span>${esc(text)}</span>`;
+
+// ---------------------------------------------------------------- line chart (SVG, crosshair tooltip)
+function niceTicks(lo, hi, n = 5) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const span = hi - lo, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n) || 10 * mag;
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) ticks.push(+v.toPrecision(12));
+  return ticks;
+}
+function shortNum(v) {
+  const a = Math.abs(v);
+  if (a >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "k";
+  if (a === 0) return "0";
+  if (a < 0.01) return v.toExponential(0);
+  return +v.toPrecision(3) + "";
+}
+function lineChart(el, { series, xLabel = "", yLabel = "", height = 240, markers = false, yFmt = v => fmt(v, 4) }) {
+  el.classList.add("chart");
+  const all = series.flatMap(s => s.points);
+  if (!all.length) { el.innerHTML = `<div class="empty">尚無資料</div>`; return; }
+  const legend = series.length >= 2
+    ? `<div class="legend">${series.map(s => `<span><span class="swatch" style="background:${s.color}"></span>${esc(s.name)}</span>`).join("")}</div>` : "";
+  const W = Math.max(280, el.clientWidth || 600), H = height, m = { l: 52, r: 14, t: 10, b: 34 };
+  const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = (y1 - y0) * 0.06 || Math.abs(y1) * 0.05 || 1; y0 -= pad; y1 += pad;
+  const yt = niceTicks(y0, y1, 5), xt = niceTicks(x0, x1, Math.max(3, Math.floor((W - 80) / 90)));
+  y0 = Math.min(y0, yt[0]); y1 = Math.max(y1, yt[yt.length - 1]);
+  if (x0 === x1) { x0 -= 1; x1 += 1; }
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r), Y = v => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(yLabel)} vs ${esc(xLabel)}">`;
+  for (const t of yt) svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--grid)" stroke-width="1"/>`
+    + `<text x="${m.l - 8}" y="${Y(t) + 4}" text-anchor="end" font-size="11" fill="var(--muted)" style="font-variant-numeric:tabular-nums">${shortNum(t)}</text>`;
+  for (const t of xt) if (t >= x0 && t <= x1) svg += `<text x="${X(t)}" y="${H - m.b + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${shortNum(t)}</text>`;
+  svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="var(--axis)"/>`;
+  svg += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="var(--ink-2)">${esc(xLabel)}</text>`;
+  svg += `<text transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" font-size="11" fill="var(--ink-2)">${esc(yLabel)}</text>`;
+  for (const s of series) {
+    if (!s.points.length) continue;
+    const d = s.points.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+    svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if (markers && s.points.length <= 60) for (const p of s.points)
+      svg += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3" fill="${s.color}" stroke="var(--surface)" stroke-width="1.5"/>`;
+    if (s.mark) svg += `<circle cx="${X(s.mark[0])}" cy="${Y(s.mark[1])}" r="5" fill="none" stroke="${s.color}" stroke-width="2"/>`;
+  }
+  svg += `<line class="xh" y1="${m.t}" y2="${H - m.b}" stroke="var(--axis)" stroke-dasharray="3 3" visibility="hidden"/>`;
+  svg += `<g class="dots"></g><rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/></svg>`;
+  el.innerHTML = legend + svg + `<div class="tip"></div>`;
+  const svgEl = $("svg", el), tip = $(".tip", el), xh = $(".xh", el), dots = $(".dots", el);
+  svgEl.addEventListener("mousemove", ev => {
+    const r = svgEl.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    const xv = x0 + (px - m.l) / (W - m.l - m.r) * (x1 - x0);
+    let rows = [], cx = null, dd = "";
+    for (const s of series) {
+      if (!s.points.length) continue;
+      let best = s.points[0];
+      for (const p of s.points) if (Math.abs(p[0] - xv) < Math.abs(best[0] - xv)) best = p;
+      if (cx == null || Math.abs(best[0] - xv) < Math.abs(cx - xv)) cx = best[0];
+      rows.push([s, best]);
+    }
+    rows = rows.filter(([, p]) => Math.abs(p[0] - cx) <= (x1 - x0) * 0.02 + 1e-9);
+    xh.setAttribute("x1", X(cx)); xh.setAttribute("x2", X(cx)); xh.setAttribute("visibility", "visible");
+    for (const [s, p] of rows) dd += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="4.5" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
+    dots.innerHTML = dd;
+    tip.innerHTML = `<div class="muted">${esc(xLabel)} ${shortNum(cx)}</div>` + rows.map(([s, p]) =>
+      `<div><span class="swatch" style="background:${s.color}"></span>${esc(s.name)}　<b>${esc(yFmt(p[1]))}</b></div>`).join("");
+    tip.style.display = "block";
+    const left = (X(cx) / W) * r.width, tw = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(0, left + 12), r.width - tw) + "px";
+    tip.style.top = (legend ? $(".legend", el).offsetHeight : 0) + 8 + "px";
+  });
+  svgEl.addEventListener("mouseleave", () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); dots.innerHTML = ""; });
+}
+const chartQueue = [];
+function chart(id, opts) { chartQueue.push([id, opts]); }
+function flushCharts() { while (chartQueue.length) { const [id, o] = chartQueue.shift(); const el = document.getElementById(id); if (el) { el._opts = o; lineChart(el, o); } } }
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => document.querySelectorAll(".chart").forEach(el => el._opts && lineChart(el, el._opts)), 150); });
+
+// ---------------------------------------------------------------- metric labels
+const METRIC_LABEL = {
+  "val_iou_land_water water": "val IoU 水（log）", "val_Global_iou_land_water water": "val IoU 水（global）",
+  "val_bce_loss": "val BCE", "val_bce_land_water": "val BCE 水陸", "train_loss_epoch": "train loss（epoch）",
+};
+const mlabel = k => METRIC_LABEL[k] || k;
+function preferredMetric(list) {
+  return ["val_Global_iou_land_water water", "val_iou_land_water water", "val_bce_loss"].find(k => list.includes(k)) || list[0];
+}
+const runModel = hp => {
+  if (!hp) return "";
+  const parts = [];
+  if (hp.backbone) parts.push(hp.backbone.replace("terramind_v1_", "TM-"));
+  else parts.push("UNet");
+  if (hp.backbone_modalities) parts.push(hp.backbone_modalities.join("+"));
+  else if (hp.channel_configuration) parts.push(hp.channel_configuration);
+  if (hp.tim) parts.push("TiM " + hp.tim.join("+"));
+  if (hp.backbone_freeze === "true") parts.push("凍結");
+  if (hp.batch_size) parts.push("bs" + hp.batch_size);
+  return parts.join(" · ");
+};
+
+// ---------------------------------------------------------------- training tab
+async function renderTraining() {
+  const el = $("#tab-training");
+  const d = await api("/api/training");
+  let h = "";
+  const gpus = d.gpu.gpus || [];
+  h += `<div class="card"><h2>GPU</h2>` + (d.gpu.error ? `<div class="err">${esc(d.gpu.error)}</div>` :
+    gpus.map(g => `<div class="sub" style="margin-bottom:8px">#${esc(g.index)} ${esc(g.name)}</div><div class="tiles">
+      <div class="tile"><div class="k">使用率</div><div class="v">${g.util ?? "—"}%</div></div>
+      <div class="tile"><div class="k">記憶體</div><div class="v">${g.mem_used != null ? (g.mem_used / 1024).toFixed(1) : "—"} GB</div><div class="d">/ ${g.mem_total != null ? (g.mem_total / 1024).toFixed(1) : "—"} GB</div></div>
+      <div class="tile"><div class="k">溫度</div><div class="v">${g.temp ?? "—"}°C</div></div>
+      <div class="tile"><div class="k">功耗</div><div class="v">${g.power != null ? Math.round(g.power) : "—"} W</div></div></div>`).join("")) + `</div>`;
+  const trains = d.jobs;
+  if (!trains.length) h += `<div class="card"><h2>執行中的工作</h2><div class="empty">目前沒有訓練 / 推論在跑。</div></div>`;
+  trains.forEach((j, i) => {
+    const p = j.progress, cv = j.curves;
+    let prog = "";
+    if (p) {
+      const epTot = p.epoch_max + 1, frac = (p.epoch + p.batch / p.batches) / epTot;
+      const remain = ((p.epoch_max - p.epoch) * p.batches + (p.batches - p.batch)) / p.it_s;
+      prog = `<div class="tiles">
+        <div class="tile"><div class="k">Epoch</div><div class="v">${p.epoch + 1} / ${epTot}</div><div class="d">從 1 起算</div></div>
+        <div class="tile"><div class="k">本 epoch</div><div class="v">${p.batch} / ${p.batches}</div><div class="d">剩 ${esc(p.epoch_eta)}</div></div>
+        <div class="tile"><div class="k">速度</div><div class="v">${p.it_s.toFixed(2)} it/s</div></div>
+        <div class="tile"><div class="k">預估剩餘（訓練）</div><div class="v">${dur(remain)}</div><div class="d">不含 validation</div></div></div>
+        <div class="plabel"><span>整體進度</span><span>${pct(frac)}</span></div><div class="progress"><div style="width:${(100 * frac).toFixed(2)}%"></div></div>
+        <div class="plabel"><span>本 epoch</span><span>${pct(p.batch / p.batches)}</span></div><div class="progress"><div style="width:${(100 * p.batch / p.batches).toFixed(2)}%"></div></div>`;
+    } else prog = `<div class="muted">log 中找不到進度列${j.log ? "" : "（stdout 沒有導向檔案）"}。</div>`;
+    let charts = "";
+    if (cv && cv.epochs.length) {
+      const mk = preferredMetric(cv.metrics);
+      chart(`tj-iou-${i}`, { series: [{ name: mlabel(mk), color: SERIES(0), points: cv.epochs.filter(e => e[mk] != null).map(e => [e.epoch, e[mk]]) }],
+        xLabel: "epoch", yLabel: mlabel(mk), markers: true });
+      chart(`tj-loss-${i}`, { series: [{ name: "train loss", color: SERIES(0), points: cv.loss }], xLabel: "step", yLabel: "train loss" });
+      charts = `<div class="grid g2" style="margin-top:12px"><div><h3>${esc(mlabel(mk))}（每 epoch）</h3><div id="tj-iou-${i}"></div></div>
+        <div><h3>train loss（每 50 step）</h3><div id="tj-loss-${i}"></div></div></div>`;
+    }
+    h += `<div class="card"><h2>${badge("good", j.kind === "train" ? "訓練中" : j.kind)} ${esc(j.name || j.experiment || "工作")}
+      <span class="sub mono">${esc(j.experiment || "")}</span></h2>
+      <div class="sub mono" style="margin:-6px 0 10px">PID ${j.pid} · 已執行 ${dur(j.elapsed)} · ${esc(j.cmd)}</div>
+      ${prog}${charts}
+      ${j.log_tail && j.log_tail.length ? `<h3>log 尾段 <span class="sub mono">${esc(j.log)}</span></h3><pre class="log">${esc(j.log_tail.join("\n"))}</pre>` : ""}</div>`;
+  });
+  if (d.queues.length) h += `<div class="card"><h2>排程腳本</h2>` + d.queues.map(q =>
+    `<h3 class="mono">${esc(q.cmd)} <span class="sub">PID ${q.pid} · ${dur(q.elapsed)}</span></h3>` +
+    (q.log_tail && q.log_tail.length ? `<pre class="log">${esc(q.log_tail.join("\n"))}</pre>` : "")).join("") + `</div>`;
+  h += `<div class="card"><h2>最近的 log <span class="sub">artifacts/runs/*.log</span></h2>` + (d.logs.length ? d.logs.map(l =>
+    `<details><summary><span class="mono">${esc(l.path)}</span> <span class="sub">${ago(l.updated)}</span></summary><pre class="log">${esc(l.tail.join("\n"))}</pre></details>`).join("")
+    : `<div class="empty">沒有 log。</div>`) + `</div>`;
+  el.innerHTML = h; flushCharts();
+}
+
+// ---------------------------------------------------------------- experiments tab
+let compareSel = store.get("compare", []);   // [{dir, slot}]
+let expMetric = store.get("expMetric", null);
+let expData = null;
+function slotFor(dir) {
+  const hit = compareSel.find(c => c.dir === dir);
+  if (hit) return hit.slot;
+  const used = new Set(compareSel.map(c => c.slot));
+  for (let s = 0; s < 8; s++) if (!used.has(s)) return s;
+  return null;
+}
+async function renderExperiments() {
+  const el = $("#tab-experiments");
+  expData = await api("/api/experiments");
+  const runs = expData.runs;
+  const known = new Set(runs.map(r => r.dir));
+  compareSel = compareSel.filter(c => known.has(c.dir));
+  let h = `<div class="card"><h2>實驗 <span class="sub">artifacts/models · 勾選最多 8 組比較</span></h2><div class="scroll"><table>
+    <thead><tr><th></th><th>名稱</th><th>設定</th><th class="num">Epoch</th><th class="num">best epoch<br><span class="sub">min val BCE</span></th>
+    <th class="num">val BCE</th><th class="num">val IoU 水<br><span class="sub">@best</span></th><th class="num">val IoU 水<br><span class="sub">max</span></th>
+    <th class="num">ckpt</th><th>更新</th></tr></thead><tbody>`;
+  for (const r of runs) {
+    const sel = compareSel.find(c => c.dir === r.dir);
+    const sw = sel ? `<span class="swatch" style="background:${SERIES(sel.slot)}"></span>` : "";
+    h += `<tr class="${sel ? "sel" : ""}"><td><input type="checkbox" data-dir="${esc(r.dir)}" ${sel ? "checked" : ""} aria-label="比較 ${esc(r.name)}"></td>
+      <td>${sw}<b>${esc(r.name)}</b> ${r.running ? badge("good", "訓練中") : ""}<div class="sub mono">${esc(r.dir)}</div></td>
+      <td>${esc(runModel(r.hparams))}</td>
+      <td class="num">${r.epochs_done}${r.max_epochs ? " / " + r.max_epochs : ""}</td>
+      <td class="num">${r.best_epoch ?? "—"}</td><td class="num">${fmt(r.best_bce)}</td>
+      <td class="num">${fmt(r.best_iou)}</td><td class="num">${fmt(r.max_iou)}</td>
+      <td class="num">${r.checkpoints ? r.checkpoints.length : 0}</td><td class="muted">${ago(r.updated)}</td></tr>`;
+  }
+  h += `</tbody></table></div><div class="note">val IoU 取自訓練 log。訓練時的 val IoU 會隨 batch size 改變，只適合同一組內看趨勢；
+    模型間比較請看「評估結果」的 pooled IoU（見 docs/edl_vs_terramind_comparison.md §3.6）。best epoch 依最小 val BCE 選取。</div></div>`;
+  h += `<div class="card" id="cmp"></div>`;
+  el.innerHTML = h;
+  el.querySelectorAll("input[type=checkbox][data-dir]").forEach(cb => cb.addEventListener("change", () => {
+    const dir = cb.dataset.dir;
+    if (cb.checked) {
+      const s = slotFor(dir);
+      if (s == null) { cb.checked = false; alert("最多比較 8 組"); return; }
+      compareSel.push({ dir, slot: s });
+    } else compareSel = compareSel.filter(c => c.dir !== dir);
+    store.set("compare", compareSel); renderExperiments();
+  }));
+  await renderCompare();
+}
+async function renderCompare() {
+  const box = $("#cmp");
+  if (!compareSel.length) { box.innerHTML = `<h2>比較</h2><div class="empty">在上表勾選實驗，即可疊圖比較每個 epoch 的 val 指標與 train loss。</div>`; return; }
+  const curves = await Promise.all(compareSel.map(c => api("/api/run?dir=" + encodeURIComponent(c.dir)).then(d => ({ ...d, slot: c.slot })).catch(() => null)));
+  const ok = curves.filter(Boolean);
+  const metrics = [...new Set(ok.flatMap(c => c.metrics))].sort();
+  if (!expMetric || !metrics.includes(expMetric)) expMetric = preferredMetric(metrics);
+  box.innerHTML = `<h2>比較 <span class="sub">${ok.length} 組</span></h2>
+    <div class="filters"><label>指標 <select id="metricSel">${metrics.map(m => `<option value="${esc(m)}" ${m === expMetric ? "selected" : ""}>${esc(mlabel(m))}</option>`).join("")}</select></label></div>
+    <div class="grid g2"><div><h3>${esc(mlabel(expMetric))}（每 epoch，圈 = best epoch）</h3><div id="cmp-metric"></div></div>
+    <div><h3>train loss（每 50 step）</h3><div id="cmp-loss"></div></div></div>
+    <details><summary>表格檢視</summary><div class="scroll" id="cmp-table"></div></details>`;
+  $("#metricSel").addEventListener("change", e => { expMetric = e.target.value; store.set("expMetric", expMetric); renderCompare(); });
+  const runInfo = Object.fromEntries((expData?.runs || []).map(r => [r.dir, r]));
+  chart("cmp-metric", { series: ok.map(c => {
+      const pts = c.epochs.filter(e => e[expMetric] != null).map(e => [e.epoch, e[expMetric]]);
+      const be = runInfo[c.dir]?.best_epoch, mark = pts.find(p => p[0] === be);
+      return { name: c.name, color: SERIES(c.slot), points: pts, mark };
+    }), xLabel: "epoch", yLabel: mlabel(expMetric), markers: true });
+  chart("cmp-loss", { series: ok.map(c => ({ name: c.name, color: SERIES(c.slot), points: c.loss })), xLabel: "step", yLabel: "train loss" });
+  flushCharts();
+  const maxEp = Math.max(...ok.map(c => c.epochs.length ? c.epochs[c.epochs.length - 1].epoch : 0));
+  let t = `<table><thead><tr><th>epoch</th>${ok.map(c => `<th class="num">${esc(c.name)}</th>`).join("")}</tr></thead><tbody>`;
+  for (let e = 0; e <= maxEp; e++) t += `<tr><td>${e}</td>${ok.map(c => `<td class="num">${fmt((c.epochs.find(x => x.epoch === e) || {})[expMetric])}</td>`).join("")}</tr>`;
+  $("#cmp-table").innerHTML = t + "</tbody></table>";
+}
+
+// ---------------------------------------------------------------- results tab
+let resSel = store.get("resSel", null);
+async function renderResults() {
+  const el = $("#tab-results");
+  const d = await api("/api/results");
+  const groups = d.groups;
+  if (!groups.length) { el.innerHTML = `<div class="card"><h2>評估結果</h2><div class="empty">artifacts/results 底下沒有 metrics_*.csv。</div></div>`; return; }
+  const datasets = [...new Set(groups.map(g => g.dataset))];
+  if (!resSel || !groups.some(g => g.dataset === resSel.dataset && g.subset === resSel.subset)) {
+    const g0 = groups.find(g => g.dataset === "tile256" && g.subset === "test") || groups[0];
+    resSel = { dataset: g0.dataset, subset: g0.subset };
+  }
+  const subsets = groups.filter(g => g.dataset === resSel.dataset).map(g => g.subset);
+  const g = groups.find(x => x.dataset === resSel.dataset && x.subset === resSel.subset);
+  const top = Math.max(...g.rows.map(r => r.iou_overall || 0));
+  let h = `<div class="card"><h2>評估結果 <span class="sub">artifacts/results/**/metrics_*.csv</span></h2>
+    <div class="filters"><label>資料集 <select id="dsSel">${datasets.map(x => `<option ${x === resSel.dataset ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+    <label>subset <select id="ssSel">${subsets.map(x => `<option ${x === resSel.subset ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+    <span class="sub">${g.rows.length} 個模型 / ckpt，依 OVERALL IoU 排序</span></div>
+    <div class="scroll"><table><thead><tr><th>#</th><th>模型</th><th class="num">張數</th><th>OVERALL IoU 水<br><span class="sub">pooled TP/(TP+FP+FN)</span></th>
+    <th class="num">AVERAGE IoU<br><span class="sub">每張平均</span></th><th class="num">Precision</th><th class="num">Recall</th><th>更新</th></tr></thead><tbody>`;
+  const lo = Math.min(...g.rows.map(r => r.iou_overall || 0)), span = Math.max(1e-9, top - Math.min(lo, top - 0.02) );
+  const base = Math.max(0, Math.min(lo, top - 0.02) - span * 0.15);
+  g.rows.forEach((r, i) => {
+    const w = r.iou_overall == null ? 0 : Math.max(2, (r.iou_overall - base) / (top - base) * 100);
+    h += `<tr><td class="muted">${i + 1}</td><td><b>${esc(r.name)}</b>${r.name !== r.tag ? `<div class="sub mono">${esc(r.tag)}</div>` : ""}</td>
+      <td class="num">${r.n}</td>
+      <td class="barcell num"><div><div class="track"><div class="b" style="width:${w.toFixed(1)}%"></div></div><span>${fmt(r.iou_overall)}</span></div></td>
+      <td class="num">${fmt(r.iou_average)}</td><td class="num">${fmt(r.precision)}</td><td class="num">${fmt(r.recall)}</td>
+      <td class="muted">${ago(r.updated)}</td></tr>`;
+  });
+  h += `</tbody></table></div><div class="note">長條的起點不是 0，只用來看相對差距。paired bootstrap 信賴區間不在這裡計算，
+    見 docs/edl_vs_terramind_comparison.md 與 artifacts/runs/compare/report_*.md。</div></div>`;
+  el.innerHTML = h;
+  $("#dsSel").addEventListener("change", e => { resSel = { dataset: e.target.value, subset: null }; const s = groups.find(x => x.dataset === resSel.dataset); resSel.subset = s.subset; store.set("resSel", resSel); renderResults(); });
+  $("#ssSel").addEventListener("change", e => { resSel.subset = e.target.value; store.set("resSel", resSel); renderResults(); });
+}
+
+// ---------------------------------------------------------------- project tab
+async function renderProject() {
+  const el = $("#tab-project");
+  const d = await api("/api/project");
+  const git = d.git, gh = d.github, t = d.tests;
+  const status = git.status.slice(1);
+  let h = `<div class="grid g2">`;
+  // git
+  h += `<div class="card"><h2>Git <span class="sub mono">${esc(d.root)}</span></h2>
+    <div class="tiles"><div class="tile"><div class="k">目前 branch</div><div class="v mono" style="font-size:16px">${esc(git.branch)}</div><div class="d">${esc(git.status[0] || "")}</div></div>
+    <div class="tile"><div class="k">未 commit 的檔案</div><div class="v">${status.length}</div></div>
+    <div class="tile"><div class="k">上次 fetch</div><div class="v" style="font-size:16px">${ago(git.last_fetch)}</div></div></div>
+    ${status.length ? `<pre class="log">${esc(status.join("\n"))}</pre>` : ""}
+    <h3>Branches</h3><div class="scroll"><table><thead><tr><th>branch</th><th>upstream</th><th>更新</th></tr></thead><tbody>
+    ${git.branches.map(b => `<tr><td class="mono">${esc(b.name)}</td><td class="mono">${esc(b.upstream)} <span class="muted">${esc(b.track)}</span></td><td class="muted">${esc(b.date)}</td></tr>`).join("")}</tbody></table></div>
+    <h3>Worktrees</h3>${git.worktrees.map(w => `<div class="mono sub">${esc(w.path)} · ${esc(w.branch || "detached " + (w.head || ""))}</div>`).join("")}
+    ${git.stashes.length ? `<h3>Stashes</h3><pre class="log">${esc(git.stashes.join("\n"))}</pre>` : ""}</div>`;
+  // commits
+  h += `<div class="card"><h2>最近的 commit <span class="sub mono">${esc(git.log_ref)}</span></h2><div class="scroll"><table><tbody>
+    ${git.commits.map(c => `<tr><td class="mono muted">${esc(c.sha)}</td><td>${esc(c.subject)}<div class="sub">${esc(c.author)} · ${esc(c.date)}</div></td></tr>`).join("")}</tbody></table></div></div>`;
+  h += `</div>`;
+  // tests
+  const tot = t.totals || {};
+  h += `<div class="card"><h2>測試 <span class="sub">pytest tests/（CPU、HF 離線）</span>
+    <span class="spacer"></span><button class="btn" id="runTests" ${t.running ? "disabled" : ""}>${t.running ? "執行中…" : "執行測試"}</button></h2>`;
+  if (t.running) h += `<div class="muted">開始於 ${ago(t.started)}</div>${t.log_tail ? `<pre class="log">${esc(t.log_tail.join("\n"))}</pre>` : ""}`;
+  else if (t.cases) {
+    const failed = t.cases.filter(c => c.state === "failed" || c.state === "error"), skipped = t.cases.filter(c => c.state === "skipped");
+    h += `<div class="tiles"><div class="tile"><div class="k">${badge("good", "通過")}</div><div class="v">${tot.passed}</div></div>
+      <div class="tile"><div class="k">${badge(failed.length ? "crit" : "", "失敗")}</div><div class="v">${(tot.failed || 0) + (tot.error || 0)}</div></div>
+      <div class="tile"><div class="k">${badge("", "略過")}</div><div class="v">${tot.skipped}</div></div>
+      <div class="tile"><div class="k">完成時間</div><div class="v" style="font-size:16px">${ago(t.finished)}</div><div class="d">耗時 ${dur(t.duration)}</div></div></div>`;
+    if (failed.length) h += `<h3>失敗</h3><table><tbody>${failed.map(c => `<tr><td>${badge("crit", "失敗")}</td><td class="mono">${esc(c.name)}<div class="sub">${esc(c.message)}</div></td></tr>`).join("")}</tbody></table>`;
+    if (skipped.length) h += `<details><summary>略過 ${skipped.length} 個</summary><table><tbody>${skipped.map(c => `<tr><td class="mono">${esc(c.name)}<div class="sub">${esc(c.message)}</div></td></tr>`).join("")}</tbody></table></details>`;
+  } else h += `<div class="empty">還沒有測試結果。按「執行測試」在背景跑一次（約 1 分鐘，不使用 GPU）。</div>`;
+  if (t.error) h += `<div class="err">${esc(t.error)}</div>`;
+  h += `</div>`;
+  // github
+  h += `<div class="card"><h2>GitHub <span class="sub">${gh.fetched ? "取得於 " + ago(gh.fetched) : ""}</span><span class="spacer"></span><button class="btn" id="ghRefresh">更新</button></h2>`;
+  if (gh.error) h += `<div class="err">${esc(gh.error)}</div>`;
+  else {
+    const stCls = p => p.state === "OPEN" ? (p.isDraft ? "" : "good") : p.state === "MERGED" ? "good" : "";
+    const stTxt = p => p.state === "OPEN" ? (p.isDraft ? "Draft" : "Open") : p.state === "MERGED" ? "Merged" : "Closed";
+    h += `<h3>Pull requests</h3>` + (gh.prs.length ? `<div class="scroll"><table><tbody>${gh.prs.map(p => `<tr><td class="muted">#${p.number}</td>
+      <td><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a><div class="sub mono">${esc(p.headRefName)} → ${esc(p.baseRefName)} · ${esc(p.author?.login)} · ${ago(Date.parse(p.updatedAt) / 1000)}</div></td>
+      <td>${badge(stCls(p), stTxt(p))}${p.reviewDecision ? " " + badge("", p.reviewDecision) : ""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">沒有 PR。</div>`);
+    h += `<h3>Open issues</h3>` + (gh.issues.length ? `<table><tbody>${gh.issues.map(i => `<tr><td class="muted">#${i.number}</td><td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>
+      <div class="sub">${esc(i.author?.login)} · ${ago(Date.parse(i.updatedAt) / 1000)}</div></td></tr>`).join("")}</tbody></table>` : `<div class="empty">沒有 open issue。</div>`);
+  }
+  h += `</div>`;
+  // docs
+  h += `<div class="card"><h2>文件 <span class="sub">docs/</span></h2><table><tbody>${d.docs.map(x => `<tr><td>${esc(x.title)}<div class="sub mono">${esc(x.path)}</div></td><td class="muted">${ago(x.updated)}</td></tr>`).join("")}</tbody></table></div>`;
+  el.innerHTML = h;
+  $("#runTests")?.addEventListener("click", async () => { await api("/api/tests/run", { method: "POST", headers: { "X-Dashboard": "1" } }); renderProject(); });
+  $("#ghRefresh")?.addEventListener("click", async () => { await api("/api/github/refresh", { method: "POST" }); renderProject(); });
+  if (t.running) schedule(3000);
+}
+
+// ---------------------------------------------------------------- shell
+const RENDER = { training: renderTraining, experiments: renderExperiments, results: renderResults, project: renderProject };
+const AUTO = { training: 10000, experiments: 60000, results: 0, project: 60000 };
+let current = store.get("tab", "training"), timer = null, busy = false;
+function schedule(ms) { clearTimeout(timer); if (ms) timer = setTimeout(load, ms); }
+async function load() {
+  if (busy) return; busy = true;
+  clearTimeout(timer); timer = null;
+  const el = $("#tab-" + current);
+  if (!el.innerHTML) el.innerHTML = `<div class="card empty">載入中…</div>`;
+  try { await RENDER[current](); $("#updated").textContent = "更新於 " + new Date().toLocaleTimeString("zh-TW", { hour12: false }); }
+  catch (e) { el.innerHTML = `<div class="card err">載入失敗：${esc(e.message)}</div>`; }
+  finally { busy = false; }
+  if (!timer && AUTO[current]) schedule(AUTO[current]);   // a render may have scheduled a faster poll
+}
+function show(tab) {
+  current = RENDER[tab] ? tab : "training"; store.set("tab", current);
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === current));
+  document.querySelectorAll("section.tab").forEach(s => s.classList.toggle("on", s.id === "tab-" + current));
+  clearTimeout(timer); timer = null; load();
+}
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.tab)));
+$("#refresh").addEventListener("click", () => { clearTimeout(timer); timer = null; load(); });
+const savedTheme = store.get("theme", null);
+if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+$("#theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark"; store.set("theme", document.documentElement.dataset.theme);
+  document.querySelectorAll(".chart").forEach(el => el._opts && lineChart(el, el._opts));
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { clearTimeout(timer); timer = null; load(); } });
+show(current);
+</script>
+</body>
+</html>

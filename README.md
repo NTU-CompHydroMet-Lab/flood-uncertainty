@@ -202,3 +202,20 @@ encoder 原始碼 vendor 自 terratorch 1.2.11（`flood_uncertainty/models/backb
 - 推論與評估輸出：預設寫到 `artifacts/results/val_test_inference`
 - analysis 輸出：預設寫到 `artifacts/results/analysis_S2` 與 `artifacts/results/figures`
 - 權重與 checkpoints：預設放在 `artifacts/models`
+
+## 10. 本機儀表板
+
+```bash
+python scripts/dashboard/server.py            # 開 http://127.0.0.1:8765
+python scripts/dashboard/server.py --port 9000 --root /path/to/flood-uncertainty
+```
+
+只用 Python 標準庫，不需要專案依賴；每次開頁面都即時讀檔：
+
+- **訓練進度**：執行中的 `scripts/train/*.py`（epoch / batch / it/s / 預估剩餘時間，取自它的 stdout log）、val 指標與 train loss 曲線、GPU、`artifacts/runs/*.sh` 排程腳本與 log。
+- **實驗紀錄**：`artifacts/models/*/lightning_logs` 的每個實驗（名稱取自 `configurations/**` 的檔名），勾選最多 8 組疊圖比較。
+- **評估結果**：`artifacts/results/**/metrics_*.csv`，依資料集 / subset 顯示 pooled（OVERALL）與平均 IoU、precision、recall。
+- **專案狀態**：git branch / commit / worktree / stash、GitHub PR 與 issue（需 `gh auth login`）、在背景執行 `pytest tests/`（CPU、HF 離線，結果存在 `artifacts/dashboard/`）。
+
+預設只綁定 127.0.0.1。從自己的電腦看：`ssh -L 8765:localhost:8765 <主機>` 後開 http://localhost:8765（VS Code Remote 會自動轉送 port）。
+評估 tag 與實驗目錄的顯示名稱對照在 `server.py` 開頭的 `TAG_NAMES` / `EXPERIMENT_NAMES`。
