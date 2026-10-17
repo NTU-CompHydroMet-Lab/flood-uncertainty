@@ -16,6 +16,14 @@
 - 推測：`unet_baseline` 的 encoder + decoder 都從 WF2（在 WorldFloods 上訓練的 UNet）起跑，在同資料集上有主場優勢；換到沒看過的資料時，通用預訓練的 TerraMind 泛化較好。
 - 相對 `tm_l1c13`：TiM（`tm_l1c13_tim`）與全解析度 input skip（`tm_l1c13_inskip`）在 Sen1Floods11 上各帶來 +2.8 / +2.3 pt（皆顯著），在 WorldFloods 上差異不顯著。
 - Uncertainty：同資料集與 Sen1Floods11 test 上，`unet_baseline` 的 retention AUC 仍是最高或並列最高；TerraMind 預測較準，但「知道自己哪裡不準」的能力沒有更好。
+- **UNet 重訓（§3.8）**：在本機資料上重訓的 `unet_bs64@ep8` 與 `unet_baseline` 的 WorldFloods test ΔIoU 為 −0.0002 [−0.0034, +0.0011]，
+  已重現 baseline。改用 batch 16 的 `unet_bs16@ep9` 較差（WorldFloods test −0.0108 [−0.0243, −0.0004]、Sen1Floods11 test −0.0663 [−0.1021, −0.0305]）。
+  與相同 batch 16 的 `unet_bs16` 比較時，TerraMind 在 WorldFloods test 上差異皆不顯著（`tm_l1c13_tim` +0.0003 [−0.0211, +0.0125]），
+  在 Sen1Floods11 test 上皆顯著較佳（+0.0808 至 +0.1087）。
+- **Overfitting（§3.9）**：`unet_bs16` 的 WorldFloods test IoU 由 ep5 的 0.8351 降至 ep29 的 0.8034；`tm_l1c13` 在 ep10–ep25 維持 0.8183–0.8218，無晚期退化，
+  但依 val 選出的 ep7 只有 0.8082。
+- **SAR（Kuro Siwo，§8）**：`tm_s1grd@ep23` 對 `unet_s1@ep17` 在 Kuro Siwo test 上 ΔIoU +0.0224（事件 bootstrap [−0.0015, +0.0423]，10 個事件中 7 個較佳）；
+  在 Bolivia 上 +0.3550 [+0.2142, +0.4857]。TiM 在 Kuro Siwo test 上使 SAR 模型顯著變差（−0.0146 [−0.0221, −0.0013]）。
 
 ## 1. 實驗組合
 
@@ -27,8 +35,10 @@
 | **`unet_baseline`** | ml4floods UNet（`EDL_ML4FloodsModel`），encoder + decoder 從 WF2 預訓練起跑，batch 64 | 目標 | 完成 |
 | **`tm_l2a6`** | TerraMind 解凍，`bgriswirs` 6 波段 → S2L2A embedding（波段子集） | 消融：與 `tm_l1c13` 比，看 L1C 13 波段的效果 | 完成 |
 | **`tm_l1c13`** | TerraMind 解凍，`all` 13 波段 → **S2L1C** embedding | TerraMind 主線基準 | 完成 |
-| **`tm_l1c13_tim`** | `tm_l1c13` + TiM（從 S2L1C 生成 LULC token，argmax 解碼，生成器凍結） | `tm_l1c13` | 完成（WorldFloods ep29 評估中） |
+| **`tm_l1c13_tim`** | `tm_l1c13` + TiM（從 S2L1C 生成 LULC token，argmax 解碼，生成器凍結） | `tm_l1c13` | 完成 |
 | **`tm_l1c13_inskip`** | `tm_l1c13` + 全解析度 input skip（`decoder_input_skip_channels: 32`） | `tm_l1c13` | 完成 |
+| `unet_bs64` | 在本機資料與機器上重訓 `unet_baseline`（相同設定，batch 64） | `unet_baseline`（重現性） | 完成 |
+| `unet_bs16` | 同上，batch 16（與 TerraMind 各組相同） | `unet_bs64`（批次大小） | 完成 |
 
 **TerraMind 各組共同設定**：`EDL_TerraMind_ML4FloodsModel`；TerraMind v1 base（ViT-B/16，HF `ibm-esa-geospatial/TerraMind-1.0-base`），
 取第 2/5/8/11 層 → 1×1 lateral → stride 4/8/16/32 金字塔；decoder 同 UNet 結構 + `dconv_full`（stride 4 → 全解析度），隨機初始化；
@@ -47,6 +57,8 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
 | `tm_l1c13` | `configurations/terramind/tm_l1c13.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze` | `EDL-TERRAMIND_s2l1c_ep*` |
 | `tm_l1c13_tim` | `configurations/terramind/tm_l1c13_tim.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze_tim_lulc` | `EDL-TERRAMIND_tim_ep*` |
 | `tm_l1c13_inskip` | `configurations/terramind/tm_l1c13_inskip.json` | `edl_terramind_v1_base_s2l1c_all_nofreeze_inskip32` | `EDL-TERRAMIND_inskip_ep*` |
+| `unet_bs64` | `configurations/terramind/unet_bs64.json` | `edl_unet_bgriswirs_bs64` | `EDL_unet_bs64_ep*` |
+| `unet_bs16` | `configurations/terramind/unet_bs16.json` | `edl_unet_bgriswirs_bs16` | `EDL_unet_bs16_ep*` |
 
 **共同條件**：WorldFloods v2（train 475 / **val 16** / test 18 張 S2；每 epoch 約 65,600 個 window），`max_tile_size 256`、
 `filter_windows`（`threshold_clouds 0.8`）、Adam、ReduceLROnPlateau（factor 0.5 / patience 2）on `val_bce_land_water`、
@@ -231,6 +243,68 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
 - 另約 46% 在遠離水體處（≥32 px），256 tile 下**以漏報為主**（FN 多約 83 萬、FP 反而少約 27 萬）：大水體內部有區塊沒抓到。`tm_l2a6@ep20` 也是同樣模式（FN 多約 121 萬）。
 - `tm_l1c13_inskip` 原本針對「水體周圍多報水」，但在 WorldFloods test 上沒有改善（−0.8 pt vs `tm_l1c13`，CI 跨 0），recall 反而下降（0.880 vs 0.906）。
 
+### 3.8 UNet 重訓與批次大小
+
+`unet_bs64` 與 `unet_bs16` 由 WF2 預訓練權重（`/home/NAS/homes/cjchen-10025/.../WF2_unetv2_bgriswirs/model.pt`）起跑，
+使用本文件各組相同的訓練資料與機器，除 batch 外設定同 `configurations/edl.json`。ckpt 依 §2 規則（best val：`unet_bs64` ep8、`unet_bs16` ep9）。
+
+**IoU water（OVERALL / AVERAGE）**
+
+| model | WF val | WF test | Sen1Floods11 test | bolivia |
+|---|---|---|---|---|
+| `unet_baseline@ep8` | 0.8744 / 0.8012 | 0.8285 / 0.8302 | 0.6366 / 0.4131 | 0.5416 / 0.3997 |
+| `unet_bs64@ep8` | 0.8755 / 0.7999 | 0.8283 / 0.8268 | 0.6332 / 0.4132 | 0.5457 / 0.4056 |
+| `unet_bs64@ep29`（last） | 0.8475 / 0.7726 | 0.8013 / 0.7846 | 0.5672 / 0.3570 | 0.4821 / 0.3646 |
+| `unet_bs16@ep9` | 0.8566 / 0.7672 | 0.8176 / 0.8127 | 0.5669 / 0.3808 | 0.5669 / 0.4081 |
+| `unet_bs16@ep29`（last） | 0.8534 / 0.7760 | 0.8034 / 0.7947 | 0.5249 / 0.3638 | 0.4615 / 0.3517 |
+
+- **重現性**：`unet_bs64@ep8` 對 `unet_baseline@ep8` 的 ΔIoU OVERALL：WorldFloods test −0.0002 [−0.0034, +0.0011]、Sen1Floods11 test −0.0034 [−0.0126, +0.0049]。
+  兩者無差異，§6 限制 1 所擔心的訓練資料差異不影響結果。
+- **批次大小**：`unet_bs16@ep9` 對 `unet_bs64@ep8`：WorldFloods test −0.0108 [−0.0243, −0.0004]、Sen1Floods11 test −0.0663 [−0.1021, −0.0305]。
+- **與 TerraMind 比較（ΔIoU OVERALL）**
+
+| model | vs `unet_bs16@ep9`：WF test | vs `unet_bs16@ep9`：Sen1Floods11 test | vs `unet_bs64@ep8`：WF test | vs `unet_bs64@ep8`：Sen1Floods11 test |
+|---|---|---|---|---|
+| `tm_l2a6@ep20` | −0.0086 [−0.0259, +0.0138] | +0.1066 [+0.0546, +0.1707] | — | — |
+| `tm_l1c13@ep7` | −0.0094 [−0.0300, +0.0084] | +0.0808 [+0.0243, +0.1469] | −0.0201 [−0.0397, −0.0052] | +0.0144 [−0.0198, +0.0536] |
+| `tm_l1c13_tim@ep16` | +0.0003 [−0.0211, +0.0125] | +0.1087 [+0.0579, +0.1712] | −0.0105 [−0.0304, −0.0021] | +0.0424 [+0.0095, +0.0817] |
+| `tm_l1c13_inskip@ep13` | −0.0176 [−0.0406, +0.0117] | +0.1039 [+0.0498, +0.1668] | — | — |
+
+TerraMind 各組皆以 batch 16 訓練；TerraMind 在 batch 64 下的表現尚未測試。
+
+### 3.9 Overfitting
+
+**WorldFloods test IoU OVERALL 隨 epoch 的變化**（256 tile；`artifacts/results/tile256_traj`）
+
+| model | ep5 | ep7 | ep9 | ep10 | ep15 | ep20 | ep25 | ep29 |
+|---|---|---|---|---|---|---|---|---|
+| `tm_l1c13` | — | 0.8082（best val） | — | 0.8198 | 0.8218 | 0.8189 | 0.8183 | — |
+| `unet_bs16` | 0.8351 | — | 0.8176（best val） | 0.8095 | — | — | 0.8060 | 0.8034 |
+
+- `unet_bs16` 的 test IoU 在 ep5 後持續下降，與 val_bce 上升一致（`unet_baseline` 由 best epoch 至 ep29 上升 25.1%）。
+- `tm_l1c13` 在 ep10 後維持穩定，沒有晚期退化；依 16 張 val 選出的 ep7 是測得的最低值。
+- **訓練集擬合程度**（30 張隨機訓練影像，seed 0；IoU OVERALL）：`unet_baseline@ep8` 0.7390、`unet_bs16@ep9` 0.7174、`tm_l1c13@ep7` 0.7759、
+  `tm_l1c13@ep29` 0.8117、`tm_l1c13_tim@ep16` 0.8109。TerraMind 對訓練資料的擬合程度較高，但 WorldFloods test 未相應提升。
+  抽樣的 30 張整體難度高於 test，因此訓練與 test IoU 的差只用於模型間比較。
+
+### 3.10 參數量與計算量
+
+`torch.utils.flop_counter` 量測單張 tile 前向運算（光學 256×256、SAR 224×224）。
+
+| model | 總參數 | 可訓練 | 凍結 | encoder | 金字塔 + lateral | decoder | GFLOPs / tile |
+|---|---|---|---|---|---|---|---|
+| `unet_*`（光學） | 7.78M | 7.78M | 0 | 4.69M | — | 3.10M | 85.0 |
+| `tm_l2a6` | 97.13M | 97.13M | 0 | 86.13M | 7.82M | 3.17M | 65.4 |
+| `tm_l1c13` | 98.50M | 98.50M | 0 | 87.51M | 7.82M | 3.17M | 66.1 |
+| `tm_l1c13_inskip` | 98.53M | 98.53M | 0 | 87.51M | 7.82M | 3.20M | 70.2 |
+| `tm_l1c13_tim` | 304.05M | 95.95M | 208.11M | 84.95M | 7.82M | 3.17M | 214.4 |
+| `unet_s1`（SAR） | 7.78M | 7.78M | 0 | 4.68M | — | 3.10M | 64.9 |
+| `tm_s1grd`（SAR） | 96.34M | 96.34M | 0 | 85.35M | 7.82M | 3.17M | 49.8 |
+
+- TerraMind 的參數集中在 encoder；ViT 只在 stride 16 的 token 上運算，所以每張 tile 的計算量低於 UNet（TiM 除外）。
+- **TiM 的輸入 embedding 是凍結的**：TiM 的 S2L1C patch embedding（2.56M）與 LULC token embedding（3.36M）與凍結的生成器共用同一份權重，
+  因此 `tm_l1c13_tim` 與 `tm_l1c13` 除了 TiM 之外，patch embedding 一個凍結、一個可訓練。SAR 的 `tm_s1grd_tim` 同樣如此。
+
 ## 4. 結論
 
 - **同資料集 vs 跨資料集結論相反**：WorldFloods test 上所有 TerraMind 設定都比 `unet_baseline` 低 1–3 pt（OVERALL 皆顯著）；
@@ -245,21 +319,28 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
 - **val 無法可靠地選 ckpt**：`tm_l2a6` 的 best-val（ep20）test AVERAGE 比 ep8 低；`tm_l1c13` 的 best-val（ep7）test OVERALL 比 ep29 低（1024 tile）；
   Sen1Floods11 上 `tm_l1c13_tim@ep29` 又比 ep16 好。16 張 val 的 `val_bce` 對 test 表現幾乎沒有預測力。
 - **Uncertainty**：TerraMind 預測較準的情況下（Sen1Floods11），retention AUC 仍不及 `unet_baseline`；EDL 不確定性的品質沒有隨 encoder 改善。
+- **批次大小是 UNet 的主要變因**：在相同 batch 16 下，TerraMind 與 UNet 在 WorldFloods test 上無顯著差異，在 Sen1Floods11 test 上顯著較佳。
+  TerraMind 在 WorldFloods test 上落後的部分，有一部分來自 UNet 使用較有利的 batch 64；TerraMind 在 batch 64 下的表現仍待測試。
+- **TiM 的效果依資料集與模態而不同**：光學在 Sen1Floods11 有幫助；SAR 在 Kuro Siwo test 上顯著變差，在 Sen1Floods11 S1 上方向不一致（§8）。
+  TiM 版的輸入 embedding 是凍結的（§3.10），這個差異可能影響結果，尚未分離。
 
 ## 5. 待補結果
 
-- `tm_l1c13_tim@ep29` 的 WorldFloods 結果（評估中）。
 - WorldFloods 256 tile 的統一門檻 PAvPU（`make_reports.sh` 會一併算）。
+- TerraMind 以 batch 64 訓練（`tm_l1c13`），使其與最佳 UNet 在相同條件下比較。
+- 凍結 patch embedding 的對照組（`tm_l1c13` / `tm_s1grd`），用以分離 TiM 與凍結 embedding 的效果。
 
 ## 6. 已知限制
 
-1. **`unet_baseline` 的訓練資料與 ckpt 挑選無法確認**：它的 config 指向 `chlunchen-10030/datasets/cj/data/worldfloods_v2/data`，該目錄已不存在；
-   無法確認它的訓練集與本文件各組相同。ckpt 是「lab 指定的 epoch 8」，挑選方式未記錄（若曾參考 test，`unet_baseline` 在 WorldFloods test 上會被高估）。
+1. **`unet_baseline` 的 ckpt 挑選方式未記錄**：它的 config 指向的資料目錄已不存在，但本機重訓的 `unet_bs64@ep8`（依 §2 規則選 ckpt）重現了它的結果（§3.8），
+   因此訓練資料差異與 ckpt 挑選不影響結論。
 2. **單一 seed、單次訓練，硬體不同**：`unet_baseline` 在 chlunchen 機器、TerraMind 各組在 RTX 4090 上訓練。bootstrap CI 不含訓練變異，真實不確定性更大。
 3. **val 只有 16 張**：挑 ckpt、LR scheduler（patience 2）與 early stopping 都依賴它。
 4. **訓練預算不同**：`unet_baseline` batch 64（1025 steps / epoch），TerraMind batch 16（4099 steps / epoch），學習率未隨 batch size 調整。
+   UNet 對批次大小敏感（§3.8）；TerraMind 尚未以 batch 64 訓練。
 5. **跨資料集差異**：Sen1Floods11 與 WorldFloods 的標註習慣不同（§3.2），所有模型 precision 都偏低；跨資料集比較只看模型間相對差距。
 6. 訓練資料是 symlink 拼成的複本（train 來自 `cynthia-10040/.../worldfloods_v2_smoke_source`），檔案數與 metadata 一致，未逐檔比對內容。
+7. **超參數未調整**：TerraMind 沿用 UNet 的最佳化設定（Adam、無 warmup、ReduceLROnPlateau 依 16 張 val），`backbone_lr_mult` 只試過 0.1。
 
 ## 7. 執行紀錄
 
@@ -273,7 +354,64 @@ TerraMind 權重本身有 `untok_sen2l1c@224`（13 波段），`tm_l1c13` 讓模
   `eval_metrics.py` / `analysis_S2.py` / `compute_pavpu.py` 的 `--subset` 只接受 `val|test`，所以 Sen1Floods11 每組各自是一個資料根目錄。
 - 同一 NAS 上多機訓練時實驗目錄名稱必須不同（凍結的兩組曾因另一台機器用同一 config 啟動而混寫 ckpt 與 log）。
 - 推論 / 分析腳本在 `artifacts/runs/compare/`（`run_pipeline_tile.sh`、`run_inference_tile.py`、`report.py`、`make_reports.sh`、`pick_ckpts.py`、
-  `eval_val_iou.py`、`pavpu_fixed.py`、`boundary_error_analysis.py`、`prepare_sen1floods11.py`、`summarize.py`、`plot_curves.py`、`bench_train_step.py`），未納入 git。
+  `eval_val_iou.py`、`pavpu_fixed.py`、`boundary_error_analysis.py`、`prepare_sen1floods11.py`、`summarize.py`、`plot_curves.py`、`bench_train_step.py`，
+  SAR：`eval_sar_tiles.py`、`eval_sar_sen1.py`、`sar_report.py`），未納入 git。
+
+## 8. SAR（Kuro Siwo）
+
+**設定**：`scripts/train/train_edl_terramind_sar.py`，config 在 `configurations/terramind_sar/`。只用災後 VV / VH（`use_pre_event: false`），
+tile 224、batch 16、30 epoch，資料流程與 `configurations/edl_sar.json` 相同（含 `clamp_input` 0.15 與 KuroSiwo z-score）。
+訓練集 48,768 個 grid（`KuroV2_grid_dict_test_0_100.gz` 依 `train_acts` 過濾；三組事件無重疊）。
+TerraMind 版在模型內部把輸入還原為線性功率、轉成 dB，再套用 TerraMind S1GRD 的預訓練統計（`S1InputRenormalizer`）。
+ckpt 規則同 §2（best val：`unet_s1` ep17、`tm_s1grd` ep23、`tm_s1grd_tim` ep19）。
+
+| 名稱 | 設定 | 實驗目錄 |
+|---|---|---|
+| `unet_s1` | `EDL_SAR_Unet`（ml4floods UNet，2 通道） | `edl_sar_kurosiwo_unet_s1_bs16` |
+| `tm_s1grd` | `EDL_TerraMind_SAR`，TerraMind S1GRD 解凍 | `edl_terramind_sar_kurosiwo_s1grd` |
+| `tm_s1grd_tim` | `tm_s1grd` + TiM（從 S1GRD 生成 LULC） | `edl_terramind_sar_kurosiwo_s1grd_tim_lulc` |
+
+**Kuro Siwo test**（15,896 tile、10 個事件；`artifacts/runs/compare/report_sar_kurosiwo_test*.md`）
+
+| model | water IoU | precision | recall |
+|---|---|---|---|
+| `unet_s1@ep17` | 0.6734 | 0.7761 | 0.8357 |
+| `tm_s1grd@ep23` | **0.6957** | 0.7914 | 0.8519 |
+| `tm_s1grd_tim@ep19` | 0.6811 | 0.7893 | 0.8325 |
+| `unet_s1@ep29`（last） | 0.6622 | 0.7615 | 0.8355 |
+| `tm_s1grd@ep29`（last） | 0.6951 | 0.7950 | 0.8469 |
+
+- `tm_s1grd@ep23` − `unet_s1@ep17`：ΔIoU +0.0224，事件 bootstrap（10 個事件）[−0.0015, +0.0423]；10 個事件中 7 個較佳。
+- `tm_s1grd_tim@ep19` − `tm_s1grd@ep23`：−0.0146 [−0.0221, −0.0013]，顯著較差。
+- `unet_s1` 由 ep17 至 ep29 下降 0.0112，`tm_s1grd` 下降 0.0006。
+
+**Sen1Floods11 S1（跨資料集；`artifacts/runs/compare/report_sar_sen1floods11_*.md`）**：輸入依 KuroSiwo 訓練流程處理
+（S1Hand dB → 線性 → NaN 補 0.15 → clamp 0.15 → KuroSiwo z-score），224 tile 推論。Sen1Floods11 test 與 Bolivia 的 chip 均未與 KuroSiwo 訓練 grid 空間重疊。
+bootstrap 以 chip 為單位（2,000 次）。
+
+| model | test（84 chip）IoU / P / R | bolivia（15 chip）IoU / P / R |
+|---|---|---|
+| `unet_s1@ep17` | 0.4738 / 0.7797 / 0.5470 | 0.3395 / 0.8731 / 0.3571 |
+| `tm_s1grd@ep23` | 0.5188 / 0.6136 / 0.7704 | **0.6945** / 0.7651 / 0.8827 |
+| `tm_s1grd_tim@ep19` | **0.5440** / 0.6685 / 0.7449 | 0.5673 / 0.8097 / 0.6545 |
+
+| 比較 | test（84 chip） | bolivia |
+|---|---|---|
+| `tm_s1grd` − `unet_s1` | +0.0450 [−0.0869, +0.1997] | +0.3550 [+0.2142, +0.4857] |
+| `tm_s1grd_tim` − `unet_s1` | +0.0701 [−0.0590, +0.2136] | +0.2277 [+0.1024, +0.3108] |
+| `tm_s1grd_tim` − `tm_s1grd` | +0.0252 [−0.0027, +0.0549] | −0.1272 [−0.3360, +0.0239] |
+
+**SAR 結論**
+- TerraMind S1GRD 在 Kuro Siwo test 上高於 UNet，但以事件 bootstrap 不顯著；在 Bolivia 上顯著較佳。
+  UNet 在 Sen1Floods11 上漏報嚴重（recall 0.5470 / 0.3571），可能與兩個資料集的 SAR 前處理不同有關（KuroSiwo 含 Lee 濾波與地形校正，Sen1Floods11 經 Earth Engine 處理）。
+- TiM 在同資料集上使 SAR 模型變差，在 Sen1Floods11 上方向不一致，與光學的結果不同。
+
+**SAR 注意事項**
+- `clamp_input` 0.15（約 −8.24 dB）使 29.304% 的有效 VV 像素被截斷；`unet_s1` 與 `tm_s1grd` 同樣受影響。
+- `edl_sar_kurosiwo_epochKL@ep14`（實驗室既有 ckpt）是 6 通道（含災前影像），與只用災後 2 通道的本組不可比；`configurations/edl_sar_sen1.json` 把它當成 2 通道，
+  以新版 `load_matching_weights` 載入會報形狀不符。它的每 epoch 步數（335 步 × batch 64）對應 `KuroV2_grid_dict.gz` 的 21,462 個訓練 grid，與目前 config 的 48,768 個不同。
+- `tests/test_sar_structure.py` 預期 2 通道，但 `configurations/edl_sar.json` 是 6 通道，測試目前失敗（上游設定不一致）。
+- SAR 的 retention AUC 以 water IoU 計算時偏低（最有把握的像素多為陸地，IoU 在保留比例較高時才有定義），不據以下結論。
 
 ## 附錄 A：凍結 encoder（`tm_frozen_l2a6`，1024 tile）
 
