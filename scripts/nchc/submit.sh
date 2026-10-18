@@ -64,12 +64,14 @@ submit() {
 }
 
 if $smoke; then
+  $dry_run || nchc_confirm_account "1 smoke job (dev partition, 1 GPU, <= 30 min)" || exit 1
   job="$(submit scripts/nchc/smoke.sbatch)"
   echo "smoke job $job -> artifacts/nchc_logs/flood-smoke-$job.out"
   exit 0
 fi
 
 [[ ${#configs[@]} -gt 0 ]] || { sed -n '2,20p' "$0"; exit 2; }
+$dry_run || nchc_confirm_account "$(( ${#configs[@]} * chunks )) training job(s), 1 GPU each: ${configs[*]}" || exit 1
 
 prev="$after"
 for config in "${configs[@]}"; do

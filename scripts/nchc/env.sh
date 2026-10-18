@@ -50,6 +50,27 @@ nchc_offline_env() {
   export HF_HUB_OFFLINE=1
 }
 
+# Billing guard: before any sbatch, the user must type the project code on a real
+# terminal. There is no environment variable or flag that skips this, so scripts and
+# agents cannot submit jobs on the project without the person at the keyboard.
+nchc_confirm_account() {
+  local summary="$1" typed
+  if ! { : </dev/tty; } 2>/dev/null; then
+    echo "refusing to submit: no terminal to confirm use of project $NCHC_ACCOUNT" >&2
+    return 1
+  fi
+  {
+    echo "About to submit on NCHC project $NCHC_ACCOUNT (billed):"
+    echo "  $summary"
+    printf 'Type the project code to confirm: '
+  } >/dev/tty
+  read -r typed </dev/tty
+  if [[ "$typed" != "$NCHC_ACCOUNT" ]]; then
+    echo "not confirmed; nothing submitted" >&2
+    return 1
+  fi
+}
+
 # ssh/sftp options sharing one authenticated connection (2FA once per session).
 nchc_ssh_opts() {
   local port="$1"

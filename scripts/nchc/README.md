@@ -70,6 +70,8 @@ bash scripts/nchc/pull.sh --logs-only terramind_sen1/tm_l1c13_wf_s1f11
 
 ## 注意事項
 
+- 送件保護：`submit.sh` 與 `sen1_finetune.sh` 實際送件前，會要求在終端機親手輸入計畫代號；沒有終端機（腳本、排程、AI agent）時一律拒絕送件，也沒有可略過此步驟的參數。`--dry-run` 不需確認。
+
 - 計算節點假設無對外網路：`HF_HUB_OFFLINE`、`UV_OFFLINE`、`UV_NO_SYNC` 都已開啟，W&B 預設 offline。
 - 訓練完成會寫入 `<experiment>/.nchc_done`，同一實驗後續的 chunk 會直接結束；要從頭重訓需刪除此檔與 `checkpoint/`。
 - `windows_train_test_split_from_csv.json` 內含絕對路徑，不會上傳，首次訓練時會在 Nano5 重新產生。

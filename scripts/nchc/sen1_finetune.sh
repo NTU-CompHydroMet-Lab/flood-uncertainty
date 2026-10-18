@@ -78,6 +78,13 @@ submit() {
   fi
 }
 
+if ! $dry_run; then
+  summary=""
+  if $do_train; then summary="${#runs[@]} fine-tune job(s) (1 GPU, <= $walltime each): ${runs[*]}"; fi
+  if $do_eval; then summary="${summary:+$summary; }1 eval job (1 GPU, <= 2 h)"; fi
+  nchc_confirm_account "$summary" || exit 1
+fi
+
 train_jobs=()
 prev=""
 if $do_train; then
