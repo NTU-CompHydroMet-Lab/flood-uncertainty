@@ -26,7 +26,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ml4floods.models.architectures import layer_factory
-from flood_uncertainty.models.backbones.terramind_backbone import TerraMindBackbone
+from flood_uncertainty.models.backbones.terramind_backbone import MultiModalTerraMindBackbone, TerraMindBackbone
 
 
 class TerraMindUNet(nn.Module):
@@ -55,7 +55,7 @@ class TerraMindUNet(nn.Module):
             raise ValueError("decoder_channels must have 4 entries (deepest first)")
 
         self.backbone = backbone
-        self.modality = backbone.modality
+        self.modality = getattr(backbone, "modality", None)  # None for MultiModalTerraMindBackbone
         skip = list(reversed(decoder_channels))  # shallow -> deep: [64, 128, 256, 512]
 
         # 1x1 laterals: ViT width (768) -> UNet skip widths
@@ -98,7 +98,9 @@ class TerraMindUNet(nn.Module):
             if s > h + pad_h or s > w + pad_w:
                 x = F.pad(x, (0, s - (w + pad_w), 0, s - (h + pad_h)), mode="replicate")
                 pad_h, pad_w = s - h, s - w
-        feats = self.backbone({self.modality: x})  # the one translation line (plan §5)
+        # the one translation line (plan §5); a multi-modal backbone splits the stacked channels itself
+        inputs = self.backbone.to_modality_dict(x) if self.modality is None else {self.modality: x}
+        feats = self.backbone(inputs)
         c1, c2, c3, c4 = [lat(f) for lat, f in zip(self.lateral, feats)]  # strides 4, 8, 16, 32
 
         y = torch.cat([self._up(c4, c3), c3], dim=1)
@@ -125,9 +127,32 @@ def build_terramind_unet(h_params: Dict, n_class: int) -> TerraMindUNet:
       decoder_channels, decoder_input_skip_channels, num_channels, channel_configuration.
     """
     get = h_params.get
+    modalities = tuple(get("backbone_modalities", ["S2L2A"]))
+    if len(modalities) > 1:
+        if get("backbone_tim_modalities"):
+            raise NotImplementedError("TiM is not supported with several input modalities")
+        backbone = MultiModalTerraMindBackbone(
+            variant=get("backbone", "terramind_v1_base"),
+            modalities=modalities,
+            channel_configuration=get("channel_configuration"),
+            pretrained=bool(get("backbone_pretrained", True)),
+            local_ckpt_path=get("backbone_local_ckpt", None),
+            select_layers=tuple(get("backbone_select_layers", [2, 5, 8, 11])),
+            freeze=bool(get("backbone_freeze", False)),
+            renormalize_input=bool(get("backbone_renormalize_input", True)),
+            impl=get("backbone_impl", "vendored"),
+            s1_input=get("backbone_s1_input", None),
+        )
+        return TerraMindUNet(
+            backbone=backbone,
+            n_class=n_class,
+            decoder_channels=tuple(get("decoder_channels", [512, 256, 128, 64])),
+            input_skip_channels=int(get("decoder_input_skip_channels", 0)),
+            in_channels=get("num_channels", None),
+        )
     backbone = TerraMindBackbone(
         variant=get("backbone", "terramind_v1_base"),
-        modalities=tuple(get("backbone_modalities", ["S2L2A"])),
+        modalities=modalities,
         channel_configuration=get("channel_configuration"),
         pretrained=bool(get("backbone_pretrained", True)),
         local_ckpt_path=get("backbone_local_ckpt", None),

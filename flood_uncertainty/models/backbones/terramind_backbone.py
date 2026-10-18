@@ -475,3 +475,111 @@ class TerraMindBackbone(nn.Module):
         tokens = self.select(tokens)
         maps = [self.reshape(t, grid) for t in tokens]
         return self.pyramid(maps)
+
+
+class MultiModalTerraMindBackbone(nn.Module):
+    """TerraMind encoder fed with several modalities at once -> 4-level feature pyramid.
+
+    The incoming tensor holds the modalities stacked on the channel axis, in the order of
+    ``modalities`` (e.g. ``["S2L1C", "S1GRD"]`` -> 13 optical channels then VV, VH).
+    :meth:`to_modality_dict` splits it; each modality gets its own re-normalisation; the encoder
+    embeds each modality and merges the tokens per position (``merge_method="mean"``), so the
+    output has the same shape as the single-modality :class:`TerraMindBackbone`.
+
+    Args:
+        modalities: S2 (``S2L2A`` / ``S2L1C``) and / or S1 (``S1GRD`` / ``S1RTC``) keys.
+        channel_configuration: ml4floods channel configuration of the S2 part.
+        s1_input: loader normalisation of the S1 part (see :class:`S1InputRenormalizer`).
+        Other arguments as :class:`TerraMindBackbone` (no TiM).
+    """
+
+    def __init__(
+        self,
+        variant: str = "terramind_v1_base",
+        modalities: Sequence[str] = ("S2L1C", "S1GRD"),
+        channel_configuration: Optional[str] = None,
+        pretrained: bool = True,
+        local_ckpt_path: Optional[str] = None,
+        select_layers: Sequence[int] = (2, 5, 8, 11),
+        freeze: bool = False,
+        renormalize_input: bool = True,
+        patch_size: int = 16,
+        impl: str = "vendored",
+        s1_input: Optional[Dict] = None,
+    ):
+        super().__init__()
+        if len(modalities) < 2 or len(set(modalities)) != len(modalities):
+            raise ValueError(f"MultiModalTerraMindBackbone needs at least two different modalities, got {modalities}")
+        if len(select_layers) != 4:
+            raise ValueError("select_layers must list exactly 4 encoder blocks")
+        self.modalities = list(modalities)
+        self.patch_size = patch_size
+        self.select_layers = list(select_layers)
+
+        self.channels: List[int] = []
+        renorm: Dict[str, nn.Module] = {}
+        enc_bands: Dict[str, List[str]] = {}
+        for m in self.modalities:
+            if m in TERRAMIND_V1_S2_STATS:
+                if channel_configuration is None:
+                    raise ValueError(f"{m} needs channel_configuration")
+                bands = terramind_bands_from_channel_configuration(channel_configuration, m)
+                if bands != list(TERRAMIND_V1_S2_STATS[m][0]):
+                    enc_bands[m] = bands
+                self.channels.append(len(bands))
+                renorm[m] = InputRenormalizer(channel_configuration, bands, m) if renormalize_input else nn.Identity()
+            elif m in TERRAMIND_V1_S1_STATS:
+                self.channels.append(2)
+                if renormalize_input:
+                    if not s1_input:
+                        raise ValueError(f"{m} needs s1_input={{'units', 'mean', 'std'}}")
+                    renorm[m] = S1InputRenormalizer(m, s1_input["units"], s1_input["mean"], s1_input["std"],
+                                                    linear_floor=s1_input.get("linear_floor", 1e-4))
+                else:
+                    renorm[m] = nn.Identity()
+            else:
+                raise ValueError(f"Unsupported modality '{m}' (S2: {list(TERRAMIND_V1_S2_STATS)}, S1: {list(TERRAMIND_V1_S1_STATS)})")
+        self.renorm = nn.ModuleDict(renorm)
+        self.encoder = _build_terramind_encoder(
+            variant=variant, modalities=self.modalities, bands=enc_bands or None, pretrained=pretrained,
+            local_ckpt_path=local_ckpt_path, impl=impl,
+        )
+        self.impl = impl
+        enc_channels = list(self.encoder.out_channels)
+        self.select = SelectIndices(self.select_layers)
+        self.reshape = ReshapeTokensToImage()
+        self.pyramid = LearnedInterpolateToPyramidal([enc_channels[i] for i in self.select_layers])
+        self.out_channels: List[int] = list(self.pyramid.out_channels)
+        self.downsample_ratios: List[int] = [int(patch_size / s) for s in self.pyramid.scale_factors]
+        self.tim_modalities = None
+        self.frozen = freeze
+        if freeze:
+            for p in self.encoder.parameters():
+                p.requires_grad_(False)
+
+    @property
+    def in_channels(self) -> int:
+        return sum(self.channels)
+
+    def to_modality_dict(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        if x.shape[1] != self.in_channels:
+            raise ValueError(f"Expected {self.in_channels} channels ({dict(zip(self.modalities, self.channels))}), got {x.shape[1]}")
+        return dict(zip(self.modalities, torch.split(x, self.channels, dim=1)))
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.frozen:
+            self.encoder.eval()
+        return self
+
+    def forward(self, image_dict: Dict[str, torch.Tensor]) -> List[torch.Tensor]:
+        missing = [m for m in self.modalities if m not in image_dict]
+        if missing:
+            raise KeyError(f"Missing modalities {missing} in input dict, got {list(image_dict)}")
+        xs = {m: self.renorm[m](image_dict[m]) for m in self.modalities}
+        _, _, h, w = xs[self.modalities[0]].shape
+        if h % self.patch_size or w % self.patch_size:
+            raise ValueError(f"Input {h}x{w} must be divisible by patch size {self.patch_size}")
+        grid = (h // self.patch_size, w // self.patch_size)
+        tokens = self.select(self.encoder(xs))  # merge_method="mean" -> (B, N, D) per block
+        return self.pyramid([self.reshape(t, grid) for t in tokens])
