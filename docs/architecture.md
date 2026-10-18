@@ -1,19 +1,19 @@
-# 架構圖
+# Architecture Diagrams
 
-> 本文件的 Mermaid 圖由 `pyreverse` 從程式碼靜態分析產生，**不要手動編輯標記區塊內的內容**。
-> 程式碼變動後重新產生：
+> `pyreverse` makes the Mermaid diagrams in this document from a static analysis of the code. **Do not edit the content in the marker blocks by hand.**
+> When the code changes, make the diagrams again:
 >
 > ```bash
 > bash scripts/dev/gen_diagrams.sh
 > ```
 >
-> 圖與程式碼脫節時，以程式碼為準——重跑上面的指令即可。
+> If the diagrams and the code do not agree, the code is correct. Run the command above again.
 
 ---
 
-## 1. 模組依賴
+## 1. Module Dependencies
 
-`flood_uncertainty/` 核心套件的模組間依賴。單向、無循環。
+This diagram shows the dependencies between the modules of the core package `flood_uncertainty/`. The dependencies go in one direction and have no cycles.
 
 <!-- BEGIN PACKAGE_DIAGRAM -->
 
@@ -51,17 +51,17 @@ classDiagram
 
 <!-- END PACKAGE_DIAGRAM -->
 
-**讀圖重點**
+**Key points**
 
-- `config_loader` 扇入最高（被 `infer` 與多數 script 依賴），扇出最低（只依賴 `ml4floods`）——基礎設施模組該有的形狀。
-- `metrics.segmentation` 在此圖中是孤立節點：核心套件內部不依賴它，只有 `scripts/eval` 與 `scripts/analysis` 會用。這是刻意的分層，評估不在訓練／推論的關鍵路徑上。
-- 此圖看不到 `scripts/` 層。`flood_uncertainty` 尚未宣告為可安裝套件（`pyproject.toml` 缺 `[build-system]`），script 靠執行期 `sys.path.insert` 才能 import，靜態分析工具無法追蹤。
+- `config_loader` has the highest fan-in: `infer` and most scripts depend on it. It has the lowest fan-out: it depends only on `ml4floods`. This is the correct shape for an infrastructure module.
+- In this diagram, `metrics.segmentation` is an isolated node. The core package does not depend on it. Only `scripts/eval` and `scripts/analysis` use it. This layering is intentional: evaluation is not on the critical path of training or inference.
+- This diagram does not show the `scripts/` layer. `flood_uncertainty` is not yet declared as an installable package (`pyproject.toml` has no `[build-system]`). The scripts can import it only through `sys.path.insert` at runtime. Static analysis tools cannot track this.
 
 ---
 
-## 2. 類別結構
+## 2. Class Structure
 
-`flood_uncertainty/models/edl.py` 的類別圖。
+This is the class diagram of `flood_uncertainty/models/edl.py`.
 
 <!-- BEGIN CLASS_DIAGRAM -->
 
@@ -128,15 +128,15 @@ classDiagram
 
 <!-- END CLASS_DIAGRAM -->
 
-**讀圖重點**
+**Key points**
 
-- `EDL_SAR_Unet` 重新宣告了幾乎全部父類屬性。正常繼承下子類應只列新增成員（此處實際新增的只有 `epoch_cms` 與 `num_channels`），屬性重複代表初始化邏輯是複製而非透過 `super().__init__()` 取得。
-- `zarr_*` 六個屬性與 `_init_zarr_structure()` / `_append_batch_to_zarr()` 佔了模型類別相當比例。這是結果寫入器的職責被放進模型類別，可抽成獨立元件並以 Lightning callback 掛載，ensemble／MC dropout 亦可重用。
-- `network` 的推斷型別是四個具體類別的聯集，代表 backbone 由 `ml4floods.configure_architecture()` 動態決定，沒有共同抽象介面。FM 骨幹（見 [`foundation_model_integration.md`](./foundation_model_integration.md)）走並列的新 model 類別、不經此工廠；抽象介面層列為後續優化方向。
+- `EDL_SAR_Unet` declares almost all attributes of the parent class again. With normal inheritance, a subclass shows only its new members. Here, the only new members are `epoch_cms` and `num_channels`. The duplicate attributes show that the initialization logic is a copy. The subclass does not get it through `super().__init__()`.
+- The six `zarr_*` attributes and `_init_zarr_structure()` / `_append_batch_to_zarr()` are a large part of the model class. Thus, the model class also does the work of a result writer. You can move this work into an independent component and attach it as a Lightning callback. Ensemble and MC dropout can then use this component too.
+- The inferred type of `network` is a union of four concrete classes. This shows that `ml4floods.configure_architecture()` selects the backbone dynamically. There is no common abstract interface. The FM backbones (refer to [`foundation_model_integration.md`](./foundation_model_integration.md)) use a new, parallel model class and do not go through this factory. An abstract interface layer is an item for future improvement.
 
 ---
 
-## 3. 相關文件
+## 3. Related Documents
 
-- [`BEF_integration_plan.md`](./BEF_integration_plan.md)：BEF 融合方法
-- [`foundation_model_integration.md`](./foundation_model_integration.md)：基礎模型骨幹整合（決策、落點、里程碑、風險）
+- [`BEF_integration_plan.md`](./BEF_integration_plan.md): the BEF fusion method
+- [`foundation_model_integration.md`](./foundation_model_integration.md): integration of the foundation model backbone (decisions, code locations, milestones, risks)
