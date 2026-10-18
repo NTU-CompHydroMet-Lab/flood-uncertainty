@@ -24,6 +24,9 @@ fi
 : "${LAB_REPO:=/home/NAS/house/ycchen-10014/repo/flood-uncertainty}"
 : "${LAB_DATA:=/home/NAS/house/ycchen-10014/data}"
 : "${LAB_HF_HOME:=$HOME/.cache/huggingface}"
+# Sen1Floods11 v1.1 root used by configurations/terramind_sen1 and *_sen1.json (teammate's copy).
+: "${LAB_SEN1:=/home/NAS/house/chlunchen-10030/datasets/sen1floods11_v1.1}"
+: "${NCHC_SEN1:=$NCHC_DATA/sen1floods11_v1.1}"
 
 # Runtime environment for jobs on Nano5. Call after sourcing this file.
 nchc_runtime_env() {
@@ -37,7 +40,7 @@ nchc_runtime_env() {
   # Rewrites the /home/NAS/... paths baked into configurations/*.json
   # (see flood_uncertainty/utils/config_loader.py).
   # Extra "old=new;..." pairs (e.g. other members' dirs) go in NCHC_EXTRA_REMAP.
-  export FLOOD_PATH_REMAP="$LAB_REPO=$NCHC_REPO;$LAB_DATA=$NCHC_DATA${NCHC_EXTRA_REMAP:+;$NCHC_EXTRA_REMAP}"
+  export FLOOD_PATH_REMAP="$LAB_REPO=$NCHC_REPO;$LAB_DATA=$NCHC_DATA;$LAB_SEN1=$NCHC_SEN1${NCHC_EXTRA_REMAP:+;$NCHC_EXTRA_REMAP}"
 }
 
 # Compute nodes may have no internet: never let uv or huggingface_hub reach out.

@@ -10,7 +10,8 @@
 | `setup_env.sh` | Nano5 登入節點 | 安裝 uv，依 `uv.lock` 建立 `.venv`（Python 3.10） |
 | `submit.sh` | Nano5 登入節點 | 送出 smoke test 或訓練鏈（依序執行，互不重疊） |
 | `train.sbatch` / `smoke.sbatch` | Slurm | 單段訓練（自動從 `last.ckpt` 續訓）/ dev 分區連通性測試 |
-| `pull.sh` | 實驗室 | 下載實驗結果到 `$LAB_REPO/artifacts` |
+| `sen1_finetune.sh` / `sen1_eval.sbatch` | Nano5 登入節點 / Slurm | Sen1Floods11 的 5 個 fine-tune 與 paired 評估 |
+| `pull.sh` | 實驗室 | 下載實驗結果到 `$LAB_REPO/artifacts/nchc` |
 
 ## 步驟
 
@@ -38,9 +39,34 @@ bash scripts/nchc/submit.sh --chunks 2 configurations/terramind/tm_l1c13.json co
 squeue -u $USER
 
 # 5. 實驗室端：取回結果並上傳 W&B
-bash scripts/nchc/pull.sh edl_terramind_v1_base_s2l1c_all_nofreeze
-wandb sync artifacts/models/edl_terramind_v1_base_s2l1c_all_nofreeze/wandb/offline-run-*
+bash scripts/nchc/pull.sh edl_terramind_v1_base_s2l1c_all_nofreeze      # -> artifacts/nchc/models/
+wandb sync artifacts/nchc/models/edl_terramind_v1_base_s2l1c_all_nofreeze/wandb/offline-run-*
 ```
+
+## Sen1Floods11 fine-tune（國網版 `artifacts/runs/sen1_finetune_chain.sh`）
+
+5 個 TerraMind fine-tune（`configurations/terramind_sen1/`）加 paired DEUF 評估。各 run 互不相依，
+預設送成獨立 job（Slurm 每人最多同時跑 2 個，各自一張 GPU）；評估 job 等 5 個都成功才開始。
+
+```bash
+# 實驗室端：Sen1Floods11 子集（S2L1CHand / S1GRDHand / LabelHand / splits，約 1.7 GB）
+# + 2 個 stage-1 checkpoint + 2 個 UNet DEUF checkpoint（約 2.5 GB）
+bash scripts/nchc/push.sh code && bash scripts/nchc/push.sh hf && bash scripts/nchc/push.sh sen1
+
+# Nano5 登入節點
+bash scripts/nchc/sen1_finetune.sh --dry-run      # 先檢查送件指令
+bash scripts/nchc/sen1_finetune.sh                # 5 個 fine-tune + 評估
+squeue -u $USER
+
+# 實驗室端：取回（放在 artifacts/nchc/，不覆蓋本機同名實驗）
+bash scripts/nchc/pull.sh --results sen1_fusion_compare
+bash scripts/nchc/pull.sh --logs-only terramind_sen1/tm_l1c13_wf_s1f11
+```
+
+- Sen1 資料根目錄 `/home/NAS/house/chlunchen-10030/datasets/sen1floods11_v1.1` 已預設替換成 `$NCHC_DATA/sen1floods11_v1.1`。
+- `pretrained_path` 是相對 repo 根目錄的路徑，`push.sh sen1` 會把 checkpoint 放到 Nano5 repo 下相同位置。
+- 每個 run 最多保留 21 個 checkpoint（約 1.1 GB/個），5 個 run 合計可能達約 120 GB，送件前先確認工作區配額。
+- 其他選項：`--serial`（依序執行）、`--h200`、`--time`（預設 4 小時）、`--eval-only`、`--no-eval`，或只列出部分 run 名稱。
 
 ## 注意事項
 

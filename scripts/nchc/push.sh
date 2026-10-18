@@ -7,6 +7,7 @@
 #   bash scripts/nchc/push.sh code            # tracked + untracked-not-ignored files of this checkout
 #   bash scripts/nchc/push.sh data            # WorldFloods v2 S2/gt + dataset_metadata.csv (~93 GB, resumable)
 #   bash scripts/nchc/push.sh hf              # TerraMind-1.0-base HF cache (offline use on compute nodes)
+#   bash scripts/nchc/push.sh sen1            # Sen1Floods11 subset (~1.7 GB) + 4 checkpoints (~2.5 GB) for sen1_finetune.sh
 #   bash scripts/nchc/push.sh dir LOCAL REMOTE_REL   # any other dir, symlinks dereferenced, to $NCHC_WORK/REMOTE_REL
 #   bash scripts/nchc/push.sh all             # code + hf + data
 #
@@ -100,6 +101,50 @@ push_hf() {
   } | run_batch
 }
 
+# Sen1Floods11 v1.1: only the hand-labelled S2L1C / S1GRD / labels and the splits (~1.7 GB).
+push_sen1() {
+  local src="$LAB_SEN1/v1.1" dst="$NCHC_SEN1/v1.1"
+  {
+    mkdir_lines "$dst/data"
+    mkdir_lines "$dst/splits"
+    echo "cd $dst/data"
+    echo "lcd $src/data"
+    for d in S2L1CHand S1GRDHand LabelHand; do
+      echo "-put -r -a $d"
+    done
+    echo "cd $dst/splits"
+    echo "lcd $src/splits"
+    echo "-put -r -a flood_handlabeled"
+  } | run_batch
+}
+
+# Checkpoints the Sen1 fine-tune task reads (configurations/terramind_sen1, eval_sen1_fusion_compare.py):
+# stage-1 TerraMind (WorldFloods optical, Kuro Siwo SAR) at the same repo-relative paths as in
+# the configs, and the teammate's UNet DEUF pair under artifacts/models/ref_unet_deuf/.
+SEN1_STAGE1_CKPTS=(
+  "edl_terramind_v1_base_s2l1c_all_nofreeze/checkpoint/epoch=7-step=32792.ckpt"
+  "edl_terramind_sar_kurosiwo_s1grd/checkpoint/epoch=23-step=73152.ckpt"
+)
+SEN1_UNET_ROOT="/home/NAS/house/chlunchen-10030/projects/flood-uncertainty/artifacts/models"
+SEN1_UNET_CKPTS=(
+  "edl_sar_sen1floods11/checkpoint/epoch=17-step=4536.ckpt"
+  "edl_optical_sen1floods11/checkpoint/epoch=9-step=2520-v1.ckpt"
+)
+
+push_sen1_ckpt() {
+  local rel
+  {
+    for rel in "${SEN1_STAGE1_CKPTS[@]}"; do
+      mkdir_lines "$NCHC_REPO/artifacts/models/$(dirname "$rel")"
+      echo "-put -a \"$LAB_REPO/artifacts/models/$rel\" \"$NCHC_REPO/artifacts/models/$rel\""
+    done
+    for rel in "${SEN1_UNET_CKPTS[@]}"; do
+      mkdir_lines "$NCHC_REPO/artifacts/models/ref_unet_deuf/$(dirname "$rel")"
+      echo "-put -a \"$SEN1_UNET_ROOT/$rel\" \"$NCHC_REPO/artifacts/models/ref_unet_deuf/$rel\""
+    done
+  } | run_batch
+}
+
 push_dir() {
   local src="$1" rel="$2"
   local name
@@ -119,10 +164,11 @@ case "$target" in
   code) open_master; push_code ;;
   data) open_master; push_data ;;
   hf)   open_master; push_hf ;;
+  sen1) open_master; push_sen1; push_sen1_ckpt ;;
   dir)
     [[ $# -eq 3 ]] || { echo "usage: push.sh dir LOCAL REMOTE_REL" >&2; exit 2; }
     open_master; push_dir "$2" "$3" ;;
   all)  open_master; push_code; push_hf; push_data ;;
-  *) sed -n '2,16p' "$0"; exit 2 ;;
+  *) sed -n '2,17p' "$0"; exit 2 ;;
 esac
 echo "push $target done"
