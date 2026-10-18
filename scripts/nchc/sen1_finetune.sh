@@ -14,7 +14,12 @@
 #   --time T     walltime per fine-tune (default 04:00:00; an unfinished run resumes from
 #                last.ckpt when resubmitted)
 #   --h200       use normal2 (H200) instead of normal (H100)
+#   --out NAME   eval output under artifacts/results/ (default sen1_fusion_compare)
 #   --dry-run    print the sbatch commands only
+#
+# TiM runs (tm_l1c13_tim_wf_s1f11, tm_l1c13_tim_s1f11) are not in the default list; name them,
+# e.g. `--out sen1_fusion_compare_tim tm_l1c13_tim_wf_s1f11 tm_l1c13_tim_s1f11`. The eval job
+# adds the TiM pairs (bef_tim, direct_tim) when those runs have finished.
 #
 # The runs do not depend on each other: BEF runs 1-2 start from stage-1 checkpoints that
 # already exist; the eval job waits (afterok) for every submitted run.
@@ -34,6 +39,7 @@ do_train=true
 walltime=04:00:00
 partition_args=()
 dry_run=false
+out=""
 runs=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,8 +48,9 @@ while [[ $# -gt 0 ]]; do
     --eval-only) do_train=false; shift ;;
     --time) walltime="$2"; shift 2 ;;
     --h200) partition_args=(--partition=normal2); shift ;;
+    --out) out="$2"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) runs+=("$1"); shift ;;
   esac
@@ -54,13 +61,18 @@ done
 cd "$PROJECT_ROOT"
 mkdir -p artifacts/nchc_logs
 
-# Fail before queueing anything if an input is missing on this machine.
+# Fail before queueing anything if an input is missing on this machine
+# (the stage-1 checkpoint of every requested run is read from its config).
 if $do_train && ! $dry_run; then
   nchc_runtime_env
   missing=0
-  for path in "$NCHC_SEN1/v1.1/splits/flood_handlabeled/flood_train_data.txt" \
-              "artifacts/models/edl_terramind_v1_base_s2l1c_all_nofreeze/checkpoint/epoch=7-step=32792.ckpt" \
-              "artifacts/models/edl_terramind_sar_kurosiwo_s1grd/checkpoint/epoch=23-step=73152.ckpt"; do
+  inputs=("$NCHC_SEN1/v1.1/splits/flood_handlabeled/flood_train_data.txt")
+  for name in "${runs[@]}"; do
+    pre="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["shared"]["model_params"].get("pretrained_path") or "")' \
+      "$CONFIG_DIR/$name.json")"
+    [[ -n "$pre" ]] && inputs+=("$pre")
+  done
+  for path in "${inputs[@]}"; do
     [[ -e "$path" ]] || { echo "missing: $path" >&2; missing=1; }
   done
   compgen -G "$HF_HOME/hub/models--ibm-esa-geospatial--TerraMind-1.0-base/snapshots/*/TerraMind_v1_base.pt" >/dev/null \
@@ -107,7 +119,8 @@ if $do_eval; then
   if [[ ${#train_jobs[@]} -gt 0 ]]; then
     dep=(--dependency="afterok:$(IFS=:; echo "${train_jobs[*]}")" --kill-on-invalid-dep=yes)
   fi
-  job="$(submit "${partition_args[@]}" "${dep[@]}" scripts/nchc/sen1_eval.sbatch)"
+  job="$(submit "${partition_args[@]}" "${dep[@]}" ${out:+--export=ALL,OUT=artifacts/results/$out} \
+    scripts/nchc/sen1_eval.sbatch)"
   echo "eval: job $job${dep:+ (after all fine-tunes succeed)}"
 fi
 echo "logs: artifacts/nchc_logs/"

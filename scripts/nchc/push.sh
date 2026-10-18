@@ -8,6 +8,7 @@
 #   bash scripts/nchc/push.sh data            # WorldFloods v2 S2/gt + dataset_metadata.csv (~93 GB, resumable)
 #   bash scripts/nchc/push.sh hf              # TerraMind-1.0-base HF cache (offline use on compute nodes)
 #   bash scripts/nchc/push.sh sen1            # Sen1Floods11 subset (~1.7 GB) + 4 checkpoints (~2.5 GB) for sen1_finetune.sh
+#   bash scripts/nchc/push.sh ckpt REL           # one checkpoint, REL relative to artifacts/models
 #   bash scripts/nchc/push.sh dir LOCAL REMOTE_REL   # any other dir, symlinks dereferenced, to $NCHC_WORK/REMOTE_REL
 #   bash scripts/nchc/push.sh all             # code + hf + data
 #
@@ -124,6 +125,7 @@ push_sen1() {
 SEN1_STAGE1_CKPTS=(
   "edl_terramind_v1_base_s2l1c_all_nofreeze/checkpoint/epoch=7-step=32792.ckpt"
   "edl_terramind_sar_kurosiwo_s1grd/checkpoint/epoch=23-step=73152.ckpt"
+  "edl_terramind_v1_base_s2l1c_all_nofreeze_tim_lulc/checkpoint/epoch=16-step=69683.ckpt"
 )
 SEN1_UNET_ROOT="/home/NAS/house/chlunchen-10030/projects/flood-uncertainty/artifacts/models"
 SEN1_UNET_CKPTS=(
@@ -142,6 +144,15 @@ push_sen1_ckpt() {
       mkdir_lines "$NCHC_REPO/artifacts/models/ref_unet_deuf/$(dirname "$rel")"
       echo "put \"$SEN1_UNET_ROOT/$rel\" \"$NCHC_REPO/artifacts/models/ref_unet_deuf/$rel\""
     done
+  } | run_batch
+}
+
+# One checkpoint (path relative to artifacts/models) from the lab repo to the same place on Nano5.
+push_ckpt() {
+  local rel="$1"
+  {
+    mkdir_lines "$NCHC_REPO/artifacts/models/$(dirname "$rel")"
+    echo "put \"$LAB_REPO/artifacts/models/$rel\" \"$NCHC_REPO/artifacts/models/$rel\""
   } | run_batch
 }
 
@@ -166,10 +177,13 @@ case "$target" in
   hf)   open_master; push_hf ;;
   sen1) open_master; push_sen1; push_sen1_ckpt ;;
   sen1-ckpt) open_master; push_sen1_ckpt ;;
+  ckpt)
+    [[ $# -eq 2 ]] || { echo "usage: push.sh ckpt REL_PATH_UNDER_artifacts/models" >&2; exit 2; }
+    open_master; push_ckpt "$2" ;;
   dir)
     [[ $# -eq 3 ]] || { echo "usage: push.sh dir LOCAL REMOTE_REL" >&2; exit 2; }
     open_master; push_dir "$2" "$3" ;;
   all)  open_master; push_code; push_hf; push_data ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  *) sed -n '2,18p' "$0"; exit 2 ;;
 esac
 echo "push $target done"

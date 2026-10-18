@@ -29,6 +29,16 @@ for run in tm_s1grd_kuro_s1f11 tm_l1c13_wf_s1f11 tm_s1grd_s1f11 tm_l1c13_s1f11 t
   [[ -f "$M/$run/.nchc_done" ]] || echo "WARNING: $M/$run has no .nchc_done (training unfinished?)"
 done
 
+# TiM optical runs pair with the same SAR models as their non-TiM counterparts.
+tim=()
+if [[ -f "$M/tm_l1c13_tim_wf_s1f11/.nchc_done" ]]; then
+  tim+=(--pair bef_tim "$C/tm_s1grd_kuro_s1f11.json" "$M/tm_s1grd_kuro_s1f11" "$C/tm_l1c13_tim_wf_s1f11.json" "$M/tm_l1c13_tim_wf_s1f11")
+fi
+if [[ -f "$M/tm_l1c13_tim_s1f11/.nchc_done" ]]; then
+  tim+=(--pair direct_tim "$C/tm_s1grd_s1f11.json" "$M/tm_s1grd_s1f11" "$C/tm_l1c13_tim_s1f11.json" "$M/tm_l1c13_tim_s1f11")
+fi
+echo "TiM pairs: $(( ${#tim[@]} / 6 ))"
+
 "$UV_PROJECT_ENVIRONMENT/bin/python" scripts/analysis/eval_sen1_fusion_compare.py \
   --split "$SPLIT" \
   --pair bef "$C/tm_s1grd_kuro_s1f11.json" "$M/tm_s1grd_kuro_s1f11" "$C/tm_l1c13_wf_s1f11.json" "$M/tm_l1c13_wf_s1f11" \
@@ -36,6 +46,7 @@ done
   --single multimodal "$C/tm_l1c13_s1grd_s1f11.json" "$M/tm_l1c13_s1grd_s1f11" \
   --pair unet_deuf configurations/edl_sar_sen1.json "$U/edl_sar_sen1floods11/checkpoint/epoch=17-step=4536.ckpt" \
          configurations/edl_optical_sen1.json "$U/edl_optical_sen1floods11/checkpoint/epoch=9-step=2520-v1.ckpt" \
+  "${tim[@]}" \
   --out "$OUT"
 
 echo "results in $OUT (pull with: bash scripts/nchc/pull.sh --results $(basename "$OUT"))"
