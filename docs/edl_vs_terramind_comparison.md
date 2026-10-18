@@ -40,6 +40,10 @@ All differences are differences of water IoU (ΔIoU). The interval after each di
 - **SAR (Kuro Siwo, §8)**: On Kuro Siwo test, `tm_s1grd@ep23` minus `unet_s1@ep17` is +0.0224.
   The event bootstrap CI is [−0.0015, +0.0423]. `tm_s1grd` is better on 7 of 10 events.
   On Bolivia, the difference is +0.3550 [+0.2142, +0.4857]. TiM makes the SAR model significantly worse on Kuro Siwo test (−0.0146 [−0.0221, −0.0013]).
+- **Sen1Floods11 fine-tune and DEUF fusion (§9)**: After a fine-tune on Sen1Floods11 train, BEF (stage-1 training, then DEUF)
+  is better than a direct fine-tune: fused +0.0249 [+0.0181, +0.0322]. It is also better than one multimodal TerraMind: +0.0155 [+0.0043, +0.0279].
+  BEF and the UNet DEUF of jerrychlun are not significantly different (−0.0140 [−0.0324, +0.0005]).
+  In all DEUF groups, the fused result is worse than the optical model alone.
 
 ## 1. Experiments
 
@@ -425,6 +429,9 @@ We measured one forward pass of one tile with `torch.utils.flop_counter` (optica
 - PAvPU with a common threshold for the WorldFloods 256 tile results (`make_reports.sh` calculates it).
 - Train TerraMind with batch size 64 (`tm_l1c13`). Then compare it with the best UNet under the same conditions.
 - Control runs with a frozen patch embedding (`tm_l1c13` and `tm_s1grd`). These runs separate the effect of TiM from the effect of the frozen embedding.
+- Sen1 fine-tune with TiM (§9): `tm_l1c13_tim_wf_s1f11` (from `tm_l1c13_tim@ep16`) and `tm_l1c13_tim_s1f11` are trained (Slurm jobs 392346, 392347).
+  The evaluation (job 392348, groups `bef_tim` and `direct_tim`) is in the queue.
+- §9 with more seeds. Find why the DEUF fusion is worse than the optical model alone.
 
 ## 6. Known limitations
 
@@ -531,6 +538,97 @@ We measured one forward pass of one tile with `torch.utils.flop_counter` (optica
 - `tests/test_sar_structure.py` expects 2 channels, but `configurations/edl_sar.json` has 6 channels. Thus, the test fails now (the upstream settings do not agree).
 - For SAR, the retention AUC from water IoU is low. The most certain pixels are mostly land, thus the IoU is defined only at a high retention.
   We do not use this value for conclusions.
+
+## 9. Sen1Floods11 fine-tune and DEUF fusion (NCHC Nano5)
+
+This section uses a different protocol from §3.2 and §8: all models are fine-tuned on Sen1Floods11 train.
+Thus, compare the values in this section only with other values in this section.
+
+**Question**: Does a stage-1 training on a large dataset (WorldFloods for optical, Kuro Siwo for SAR),
+then a fine-tune on Sen1Floods11 and DEUF fusion (BEF), give a better result than a direct fine-tune?
+
+**Groups**
+
+| Group | SAR model | Optical model | Fusion | Start of the Sen1 fine-tune |
+|---|---|---|---|---|
+| `bef` | `tm_s1grd_kuro_s1f11` | `tm_l1c13_wf_s1f11` | DEUF | `tm_s1grd@ep23` (Kuro Siwo) and `tm_l1c13@ep7` (WorldFloods) |
+| `direct` | `tm_s1grd_s1f11` | `tm_l1c13_s1f11` | DEUF | TerraMind pre-trained weights (HF) |
+| `multimodal` | `tm_l1c13_s1grd_s1f11` (one encoder, S2L1C + S1GRD, 15 channels) | (same model) | In the encoder | TerraMind pre-trained weights (HF) |
+| `unet_deuf` | `edl_sar_sen1floods11@ep17` | `edl_optical_sen1floods11@ep9` | DEUF | Checkpoints of jerrychlun (no new training) |
+
+- DEUF fusion: `e_f = e_sar + e_opt`, `alpha = e_f + 1`. Only the water evidence is used.
+- No model uses TiM. The TiM runs are in progress (§5).
+
+**Settings**
+- Training script: `scripts/train/train_edl_terramind_sen1.py`. Configuration files: `configurations/terramind_sen1/`.
+- Task: `water_only` (Sen1Floods11 has no cloud labels). For `bef` optical, the stage-1 cloud + water head gives its water channels.
+- Data: Sen1Floods11 v1.1 hand-labeled split. Train 252 images, validation 89 images, test 90 images.
+  Each 512 × 512 image gives 4 windows of 256 × 256. No augmentation.
+- Optical input: `S2L1CHand` (13 bands). SAR input: `S1GRDHand` (VV, VH, dB) with the Sen1Floods11 official normalization.
+- Batch size 4. 30 epochs. Adam, lr 1e-4, `backbone_lr_mult` 0.1, ReduceLROnPlateau (factor 0.5, patience 2). `pos_weight` [1, 6].
+  KL annealing: linear, coefficient 0.5, step 10 (optical, multimodal) or step 30 (SAR). Seed 42.
+- Checkpoint rule: the same as §2 (best `val_bce_land_water` on the 89 validation images).
+  Selected epochs: `tm_l1c13_wf_s1f11` ep12, `tm_s1grd_kuro_s1f11` ep16, `tm_l1c13_s1f11` ep12, `tm_s1grd_s1f11` ep16, `tm_l1c13_s1grd_s1f11` ep3.
+- Evaluation script: `scripts/analysis/eval_sen1_fusion_compare.py`. Sen1Floods11 test, 360 windows from 90 source images.
+  Only pixels that are valid in SAR, optical and GT are counted (the same mask for all groups).
+  The bootstrap resamples the 90 source images (10,000 resamples).
+
+**Sen1Floods11 test (360 windows; `artifacts/nchc/nano5_eval/results/sen1_fusion_compare/`)**
+
+| Group | SAR: IoU / P / R | Optical: IoU / P / R | Fused: IoU / P / R |
+|---|---|---|---|
+| `bef` | **0.6722** / 0.7856 / 0.8232 | 0.8328 / 0.8837 / 0.9354 | 0.7986 / 0.8890 / 0.8871 |
+| `direct` | 0.6701 / 0.7811 / 0.8250 | 0.8049 / 0.8546 / 0.9325 | 0.7738 / 0.8636 / 0.8815 |
+| `multimodal` | — | — | 0.7831 / 0.8839 / 0.8729 |
+| `unet_deuf` | 0.6534 / 0.7490 / 0.8365 | **0.8392** / 0.8788 / 0.9490 | **0.8127** / 0.8792 / 0.9148 |
+
+The `unet_deuf` values are the same as the values that jerrychlun reported (0.6534 / 0.8392 / 0.8126). Thus, the evaluation agrees with his evaluation.
+
+| Comparison (water IoU) | ΔIoU [95% CI] |
+|---|---|
+| `bef` fused minus `direct` fused | **+0.0249 [+0.0181, +0.0322]** |
+| `bef` optical minus `direct` optical | **+0.0279 [+0.0189, +0.0393]** |
+| `bef` SAR minus `direct` SAR | +0.0021 [−0.0074, +0.0108] |
+| `bef` fused minus `multimodal` | **+0.0155 [+0.0043, +0.0279]** |
+| `multimodal` minus `direct` fused | +0.0093 [−0.0013, +0.0205] |
+| `bef` fused minus `unet_deuf` fused | −0.0140 [−0.0324, +0.0005] |
+| `bef` optical minus `unet_deuf` optical | −0.0064 [−0.0192, +0.0053] |
+| `bef` SAR minus `unet_deuf` SAR | +0.0188 [−0.0080, +0.0468] |
+| `bef` fused minus `bef` optical | **−0.0342 [−0.0642, −0.0144]** |
+| `direct` fused minus `direct` optical | **−0.0311 [−0.0642, −0.0089]** |
+| `unet_deuf` fused minus `unet_deuf` optical | **−0.0265 [−0.0515, −0.0072]** |
+
+Retention AUC from water IoU (DST uncertainty):
+
+| Group | SAR | Optical | Fused |
+|---|---|---|---|
+| `bef` | 0.9005 | 0.9794 | 0.9651 |
+| `direct` | 0.6031 | 0.4823 | 0.4981 |
+| `multimodal` | — | — | 0.2018 |
+| `unet_deuf` | 0.8861 | 0.9731 | 0.9535 |
+
+**Conclusions**
+- The stage-1 training helps. `bef` is significantly better than `direct` (+0.0249) and than `multimodal` (+0.0155).
+  The increase comes from the optical model (+0.0279). For SAR, the difference is not significant (+0.0021).
+- `bef` and `unet_deuf` are not significantly different (fused −0.0140 [−0.0324, +0.0005]). The upper limit of the CI is near zero.
+- In all three DEUF groups, the fused result is significantly worse than the optical model alone.
+  On this test set, the SAR evidence decreases the IoU of the best single modality.
+- The models without a stage-1 training (`direct`, `multimodal`) have a very low retention AUC (0.2018 to 0.6031).
+  We did not examine the cause. Thus, do not use these values for conclusions yet.
+
+**Limitations of this section**
+- One seed, one training run for each model. The bootstrap CI does not include the training variation.
+- `unet_deuf` is also a two-stage model: its SAR model starts from a Kuro Siwo checkpoint and its optical model starts from a WorldFloods checkpoint.
+  Thus, `bef` minus `unet_deuf` compares the encoders (TerraMind and UNet), not the training method.
+  The selection rule of the `unet_deuf` checkpoints is not recorded.
+- No hyperparameter search for the Sen1 fine-tune. `multimodal` selects epoch 3. This can show early overfitting.
+
+**Execution notes**
+- Training and evaluation ran on NCHC Nano5 (H100, one GPU for each job) with `scripts/nchc/sen1_finetune.sh` (branch `feat/nchc-nano5`).
+  Slurm jobs 392094 to 392099.
+- Training time for 30 epochs: `tm_l1c13_wf_s1f11` 8 min 29 s, `tm_s1grd_kuro_s1f11` 7 min 10 s, `tm_l1c13_s1f11` 7 min 30 s,
+  `tm_s1grd_s1f11` 6 min 57 s, `tm_l1c13_s1grd_s1f11` 11 min 34 s. The evaluation took 39 s.
+- The configurations keep the lab paths. `FLOOD_PATH_REMAP` (`flood_uncertainty/utils/config_loader.py`) changes them to the Nano5 paths at load time.
 
 ## Appendix A: frozen encoder (`tm_frozen_l2a6`, 1024 tiles)
 
