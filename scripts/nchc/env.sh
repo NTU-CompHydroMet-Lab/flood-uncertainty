@@ -75,5 +75,6 @@ nchc_confirm_account() {
 nchc_ssh_opts() {
   local port="$1"
   mkdir -p "$HOME/.ssh/cm"
-  echo "-p $port -o ControlMaster=auto -o ControlPersist=4h -o ControlPath=$HOME/.ssh/cm/%r@%h:%p"
+  # Keepalives: the transfer node (2222) drops idle connections well before ControlPersist.
+  echo "-p $port -o ControlMaster=auto -o ControlPersist=4h -o ControlPath=$HOME/.ssh/cm/%r@%h:%p -o ServerAliveInterval=60 -o ServerAliveCountMax=3"
 }

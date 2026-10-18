@@ -136,11 +136,11 @@ push_sen1_ckpt() {
   {
     for rel in "${SEN1_STAGE1_CKPTS[@]}"; do
       mkdir_lines "$NCHC_REPO/artifacts/models/$(dirname "$rel")"
-      echo "-put -a \"$LAB_REPO/artifacts/models/$rel\" \"$NCHC_REPO/artifacts/models/$rel\""
+      echo "put \"$LAB_REPO/artifacts/models/$rel\" \"$NCHC_REPO/artifacts/models/$rel\""
     done
     for rel in "${SEN1_UNET_CKPTS[@]}"; do
       mkdir_lines "$NCHC_REPO/artifacts/models/ref_unet_deuf/$(dirname "$rel")"
-      echo "-put -a \"$SEN1_UNET_ROOT/$rel\" \"$NCHC_REPO/artifacts/models/ref_unet_deuf/$rel\""
+      echo "put \"$SEN1_UNET_ROOT/$rel\" \"$NCHC_REPO/artifacts/models/ref_unet_deuf/$rel\""
     done
   } | run_batch
 }
@@ -165,6 +165,7 @@ case "$target" in
   data) open_master; push_data ;;
   hf)   open_master; push_hf ;;
   sen1) open_master; push_sen1; push_sen1_ckpt ;;
+  sen1-ckpt) open_master; push_sen1_ckpt ;;
   dir)
     [[ $# -eq 3 ]] || { echo "usage: push.sh dir LOCAL REMOTE_REL" >&2; exit 2; }
     open_master; push_dir "$2" "$3" ;;
