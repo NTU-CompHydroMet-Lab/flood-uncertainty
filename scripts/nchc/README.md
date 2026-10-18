@@ -3,8 +3,19 @@
 設定檔中的 `/home/NAS/...` 路徑不需修改：`train.sbatch` 會設定 `FLOOD_PATH_REMAP`，由
 `load_mode_config` 在載入時把實驗室路徑換成 Nano5 路徑（見 `flood_uncertainty/utils/config_loader.py`）。
 
+日常只需要 `nchc.sh`（在實驗室執行，其餘腳本由它呼叫）：
+
+```bash
+bash scripts/nchc/nchc.sh connect    # 雙因子驗證一次，連線保留 4 小時
+bash scripts/nchc/nchc.sh up         # 上傳 code / 權重 / Sen1 資料 / nchc.env，首次自動建環境
+bash scripts/nchc/nchc.sh run sen1   # 先 dry-run，確認後送件（需輸入計畫代號）
+bash scripts/nchc/nchc.sh status     # job 狀態與最新 log
+bash scripts/nchc/nchc.sh fetch      # 取回結果與 log，並 wandb sync
+```
+
 | 腳本 | 執行位置 | 用途 |
 |---|---|---|
+| `nchc.sh` | 實驗室 | 統一入口：connect / up / run / status / fetch / shell |
 | `env.sh` | 兩端 | 路徑與環境變數（被其他腳本 source） |
 | `push.sh` | 實驗室 | 經資料傳輸節點（sftp, port 2222）上傳 code / data / TerraMind 權重 |
 | `setup_env.sh` | Nano5 登入節點 | 安裝 uv，依 `uv.lock` 建立 `.venv`（Python 3.10） |
