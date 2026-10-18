@@ -1,22 +1,22 @@
-# 基礎模型骨幹整合（首例：TerraMind v1）
+# Foundation Model Backbone Integration (First Case: TerraMind v1)
 
-> 範圍：把遙測基礎模型（Foundation Model, FM）作為 backbone 引入 flood-uncertainty，
-> 供任何下游 decoder + head 使用。首例採用 IBM/ESA **TerraMind v1**，
-> 透過 `terratorch` 取得預訓權重。
+> Scope: This document adds a remote sensing foundation model (Foundation Model, FM) to flood-uncertainty as a backbone.
+> Any downstream decoder + head can use this backbone. The first case uses IBM/ESA **TerraMind v1**.
+> We get the pretrained weights through `terratorch`.
 >
-> **本文件不涉及不確定性方法**。骨幹輸出的 pyramid feature 是通用介面，可餵給既有
-> EDL、baseline segmentation、或 [`BEF_integration_plan.md`](./BEF_integration_plan.md)
-> 描述的融合方法，兩件工作可獨立進行。
+> **This document does not include uncertainty methods**. The backbone gives pyramid features through a general interface.
+> These features can go to the current EDL, to the baseline segmentation, or to the fusion method in
+> [`BEF_integration_plan.md`](./BEF_integration_plan.md). You can do the two tasks independently.
 
 ---
 
 ## 0. TL;DR
 
-**只借 backbone factory，不套框架全家桶。** `terratorch` 加為 uv 依賴，但僅呼叫其
-backbone factory 一個函式——不繼承 Task、不用 registry、不用 YAML CLI。保留專案原有
-`pl.LightningModule` + JSON config + script 慣例。
+**Use only the backbone factory. Do not use the full framework.** We add `terratorch` as a uv dependency.
+We call only one function from it: the backbone factory. We do not inherit Task, and we do not use the registry or the YAML CLI.
+We keep the project conventions: `pl.LightningModule` + JSON config + script.
 
-TerraMind 進來只多出「**一顆骨幹、一支 script、一份 config**」，其他一律不動。
+TerraMind adds only "**one backbone, one script, one config**". All other parts stay the same.
 
 ```
 原本：  [ml4floods backbone] ── decoder ── head
@@ -25,52 +25,54 @@ TerraMind 進來只多出「**一顆骨幹、一支 script、一份 config**」�
                  └── 只有這顆換了；decoder、head、資料、Trainer、config schema 都不動
 ```
 
-工作量約 2.5–3 天 + 完整訓練時間。
+The work takes approximately 2.5–3 days + the time for full training.
 
-**本階段不引入抽象介面層**：config 指定 model_type、model 類別內直接建構
-TerraMindBackbone，與既有四種方法的作法一致（見 §3）。`BackboneProtocol` 列為保留的
-優化方向（§3.2），等到有第二顆骨幹實作或 BEF 雙塔上線時再做。
+**This phase does not add an abstract interface layer**. The config sets model_type.
+The model class builds TerraMindBackbone directly. This is the same method as the four current methods (refer to §3).
+`BackboneProtocol` is a possible improvement for later (§3.2).
+We will do it when a second backbone implementation exists or when the BEF dual-tower model starts.
 
-> **實務原則**：關鍵不是「引入 TerraMind」，而是**引入時只切最小介面**。常見錯誤是
-> 「用什麼就繼承什麼」，導致專案結構被外部框架綁架、換掉時要動半個 codebase。
-> 即使暫不定義 Protocol，仍照「輸入 dict、輸出 pyramid list、暴露 out_channels」的
-> 形狀寫——省掉的是一個檔案，不是設計。
+> **Practical rule**: The important point is not "add TerraMind". The important point is **to add it with the smallest interface**.
+> A frequent error is "inherit everything that you use". Then the external framework controls the project structure.
+> If you replace the framework, you must change half of the codebase.
+> We do not define a Protocol now. But we still write the code in this shape: "input dict, output pyramid list, expose out_channels".
+> We remove one file, not the design.
 
 ---
 
-## 1. 名詞速查
+## 1. Quick Glossary
 
-| 術語 | 中文 | 說明 |
+| Term | Common name | Description |
 |---|---|---|
-| Foundation Model (FM) | 基礎模型 | 於大規模遙測資料預訓的通用表徵模型 |
-| TerraMind v1 | 保留原名 | IBM/ESA 發布的多模態遙測基礎模型 |
-| terratorch | 保留原名 | TerraMind 官方支援之訓練框架，本專案僅取其 backbone factory |
-| Pyramid features | 特徵金字塔 | 多層級特徵圖，供 UNet decoder 使用 |
-| Tokenizer | 分詞器 | 將影像切為 token 序列的模組，多模態 FM 常見設計 |
-| L2A / GRD | 保留原名 | Sentinel-2 大氣校正產品 / Sentinel-1 地距校正產品 |
+| Foundation Model (FM) | Foundation model | A general representation model, pretrained on large-scale remote sensing data |
+| TerraMind v1 | Original name kept | A multimodal remote sensing foundation model from IBM/ESA |
+| terratorch | Original name kept | The training framework that officially supports TerraMind. This project uses only its backbone factory |
+| Pyramid features | Feature pyramid | Multi-level feature maps for the UNet decoder |
+| Tokenizer | Tokenizer | A module that divides an image into a token sequence. Multimodal FMs frequently use this design |
+| L2A / GRD | Original name kept | Sentinel-2 atmospherically corrected product / Sentinel-1 ground range detected product |
 
 ---
 
-## 2. 決策摘要
+## 2. Decision Summary
 
-| 決策點 | 選擇 | 理由 |
+| Decision point | Selection | Reason |
 |---|---|---|
-| 引入方式 | `terratorch` 加為 uv 依賴，**僅呼叫其 backbone factory** | 避免自行重寫 HuggingFace 權重載入邏輯 |
-| 不採用範圍 | 不繼承 `SemanticSegmentationTask`、不用 registry、不用 YAML CLI | 保留專案 script + JSON 慣例，避免雙頭馬車 |
-| 骨幹包裝形式 | 純 `nn.Module`，輸入 `dict[str, Tensor]`，輸出 pyramid feature list | 通用形狀，任何下游 decoder 皆可接 |
-| 抽象介面層 | **本階段不做**。model 類別內直接建構骨幹，由 config 指定 | 只有一顆骨幹實作時，Protocol 沒有對象可抽象；見 §3.2 的觸發條件 |
-| 模態支援 | 首階段 `S2L2A` 與 `S1GRD` 各自獨立骨幹（不共用權重） | 對齊 TerraMind 預訓習慣，下游若需獨立塔亦適用 |
-| 離線權重 | 支援 `backbone_local_ckpt` 設定 | 訓練節點無網路時可用 |
-| 預設輸出層 | `select_indices = [2, 5, 8, 11]` | 對齊 TerraMind base 常見 UNet decoder 配置 |
+| Integration method | Add `terratorch` as a uv dependency, and **call only its backbone factory** | We do not have to rewrite the HuggingFace weight loading logic |
+| Parts not used | Do not inherit `SemanticSegmentationTask`. Do not use the registry. Do not use the YAML CLI | Keep the project script + JSON conventions. Do not have two conflicting systems |
+| Backbone wrapper form | A plain `nn.Module`. Input is `dict[str, Tensor]`. Output is a pyramid feature list | A general shape. Any downstream decoder can connect to it |
+| Abstract interface layer | **Not in this phase**. The model class builds the backbone directly. The config sets it | With only one backbone implementation, a Protocol has nothing to abstract. Refer to the trigger conditions in §3.2 |
+| Modality support | In the first phase, `S2L2A` and `S1GRD` each have an independent backbone (no shared weights) | This agrees with the TerraMind pretraining practice. It also works if a downstream task needs independent towers |
+| Offline weights | Support the `backbone_local_ckpt` setting | You can use it when the training node has no network |
+| Default output layers | `select_indices = [2, 5, 8, 11]` | This agrees with the usual UNet decoder configuration for TerraMind base |
 
-> 本文件只描述**表徵層**。下游任務（單模態分割、多任務、EDL、BEF 融合）由呼叫端組裝。
+> This document describes only the **representation layer**. The caller assembles the downstream tasks (single-modality segmentation, multi-task, EDL, BEF fusion).
 
 ---
 
-## 3. 骨幹的建構方式：config 指定，模型直接建構
+## 3. How to Build the Backbone: The Config Sets It, the Model Builds It Directly
 
-**目前採用直接建構**，不引入抽象介面層。`FMBaselineSegModel.__init__` 從 config 讀
-`backbone_*` 欄位，直接 `TerraMindBackbone(...)`：
+**Currently we build the backbone directly**. We do not add an abstract interface layer.
+`FMBaselineSegModel.__init__` reads the `backbone_*` fields from the config and calls `TerraMindBackbone(...)` directly:
 
 ```python
 class FMBaselineSegModel(pl.LightningModule):
@@ -88,34 +90,35 @@ class FMBaselineSegModel(pl.LightningModule):
         self.head    = Conv1x1(h["num_classes"])
 ```
 
-選擇哪顆骨幹由 config 的 `model_type` 決定、由 script 的 dispatch 選到對應的 model 類別
-（見 §8、§9），與既有 `v2` / `EDL` / `ensemble` / `dropout` 的作法完全一致——不新增機制。
+The `model_type` in the config sets which backbone to use. The dispatch in the script selects the related model class (refer to §8, §9).
+This is fully the same as the current `v2` / `EDL` / `ensemble` / `dropout` method. We add no new mechanism.
 
-### 3.1 唯一要求：骨幹暴露兩個屬性
+### 3.1 The Only Requirement: The Backbone Exposes Two Attributes
 
-即使不定義 Protocol，`TerraMindBackbone` **仍須提供**：
+We do not define a Protocol. But `TerraMindBackbone` **must still provide**:
 
 ```python
 out_channels: list[int]        # 每層 pyramid 的 channel 數，例如 [96, 192, 384, 768]
 downsample_ratios: list[int]   # 每層相對原圖的下採樣倍數，例如 [4, 8, 16, 32]
 ```
 
-這不是為了契約，是 decoder 的實際需求。沒有這兩個屬性，替代方案只有硬編通道數，或
-在 `__init__` 裡跑一次 dummy forward 去試探——兩者都更糟。
+This is not for a contract. The decoder really needs these attributes.
+Without these two attributes, there are only two alternatives: hard-code the channel numbers, or run one dummy forward in `__init__` to find them.
+Both alternatives are worse.
 
-`downsample_ratios` 特別容易被忽略：TerraMind 是 ViT，各層可能同解析度（`[16,16,16,16]`），
-與 CNN 骨幹的 `[4,8,16,32]` 模式不同。decoder 需要它才能安排正確的上採樣層數。這也直接
-對應風險登記第 4 條（token → image reshape 順序）。
+People frequently forget `downsample_ratios`. TerraMind is a ViT, so all layers can have the same resolution (`[16,16,16,16]`).
+This is different from the `[4,8,16,32]` pattern of a CNN backbone. The decoder needs this attribute to set the correct number of upsampling layers.
+This also relates directly to item 4 in the risk register (the token → image reshape order).
 
-### 3.2 保留的優化方向：`BackboneProtocol`
+### 3.2 Possible Improvement for Later: `BackboneProtocol`
 
-**暫不實作**，但記錄於此作為後續方向。當出現以下任一情況時再回頭做：
+**We do not implement it now**. We record it here as a direction for later. We will do it when one of these conditions occurs:
 
-- 需要第二顆骨幹實作（例如換 Prithvi / SatMAE，或改造 HRNet 暴露其既有 pyramid）
-- BEF 雙塔上線，`models/bef.py` 需要注入兩顆可替換的骨幹
-- 想讓既有 `EDL_ML4FloodsModel` 也能吃 FM 骨幹
+- A second backbone implementation is necessary (for example, a change to Prithvi / SatMAE, or a change to HRNet to expose its current pyramid)
+- The BEF dual-tower model starts, and `models/bef.py` must inject two replaceable backbones
+- We want the current `EDL_ML4FloodsModel` to also accept an FM backbone
 
-屆時新增 `flood_uncertainty/models/backbones/base.py`：
+At that time, we add `flood_uncertainty/models/backbones/base.py`:
 
 ```python
 class BackboneProtocol(Protocol):
@@ -124,16 +127,17 @@ class BackboneProtocol(Protocol):
     downsample_ratios: list[int]
 ```
 
-**遷移成本接近零**——`Protocol` 是結構型別（structural typing），實作端不需要繼承它。
-只要 §3.1 的兩個屬性與 §5 的 `dict → list[Tensor]` 呼叫慣例有守住，`TerraMindBackbone`
-寫好的當下就已經滿足這份契約，補上 `base.py` 只是讓 mypy / pyright 能檢查而已。
+**The migration cost is almost zero**. `Protocol` uses structural typing, so the implementation does not have to inherit it.
+The code must keep the two attributes in §3.1 and the `dict → list[Tensor]` call convention in §5.
+If it does, `TerraMindBackbone` satisfies this contract when we finish writing it.
+The `base.py` file only lets mypy / pyright do the check.
 
-> **因此本階段的紀律**：實作可以先不要抽象，但**呼叫慣例要照契約的形狀寫**。
-> 省掉的是一個檔案，不是設計。
+> **Thus, the rule for this phase**: The implementation can skip the abstraction for now. But **write the call convention in the shape of the contract**.
+> We remove one file, not the design.
 
 ---
 
-## 4. 檔案落點
+## 4. File Locations
 
 ```
 flood-uncertainty/
@@ -163,17 +167,17 @@ flood-uncertainty/
 └── pyproject.toml                           ← 【修改】新增 terratorch 依賴
 ```
 
-「不動」欄位是重點：現有 EDL、v2、ensemble、dropout 訓練管線**零風險**——FM baseline 是
-完全並列的新分支。回頭發現不對就整包移除，不影響既有實驗結果。
+The "unchanged" items are the important point. The current EDL, v2, ensemble, and dropout training pipelines have **zero risk**.
+The FM baseline is a fully parallel new branch. If we find a problem later, we remove the full package. This does not affect the current experiment results.
 
-**不在此清單**：EDL 損失、Dirichlet 融合、成對 S1/S2 dataset——屬下游/資料層工作。
+**Not in this list**: the EDL loss, the Dirichlet fusion, and the paired S1/S2 dataset. These are downstream or data-layer work.
 
 ---
 
-## 5. 資料流：翻譯只有一行
+## 5. Data Flow: The Translation Is Only One Line
 
-既有 `WorldFloodsDataset` 吐 `(B, C, H, W)`，TerraMind 要 dict。翻譯集中在
-`FMBaselineSegModel.forward()`：
+The current `WorldFloodsDataset` gives `(B, C, H, W)`. TerraMind needs a dict. The translation is only in
+`FMBaselineSegModel.forward()`:
 
 ```python
 class FMBaselineSegModel(pl.LightningModule):
@@ -194,15 +198,15 @@ class FMBaselineSegModel(pl.LightningModule):
         return self.head(self.decoder(features))
 ```
 
-`WorldFloodsDataset`、`pl.Trainer`、config schema、`utils/config_loader` 全部**零改動**：
-Trainer 只認 `pl.LightningModule`，看不到裡面是 TerraMind 還是 ml4floods。
+`WorldFloodsDataset`, `pl.Trainer`, the config schema, and `utils/config_loader` have **zero changes**.
+The Trainer knows only `pl.LightningModule`. It cannot see if TerraMind or ml4floods is inside.
 
-訓練資料沿用既有 S2-only batch，只取 `mask[:, 1]`（water 任務）、忽略 cloud，這是
-baseline 簡化。
+The training data uses the current S2-only batch. It uses only `mask[:, 1]` (the water task) and ignores cloud.
+This is a baseline simplification.
 
 ---
 
-## 6. TerraMind 骨幹實作
+## 6. TerraMind Backbone Implementation
 
 ```python
 class TerraMindBackbone(nn.Module):
@@ -215,55 +219,55 @@ class TerraMindBackbone(nn.Module):
                  freeze: bool = False): ...
 ```
 
-**內部流程**
+**Internal procedure**
 
-1. 呼叫 `terratorch.models.backbones.<terramind factory>` 建構 encoder
-2. 若 `local_ckpt_path` 有值，跳過 HuggingFace 下載改讀本地 `.ckpt`
-3. Forward：
-   - Encoder 輸出每層 `(B, n_tokens, D)` token 序列
-   - `SelectIndices(select_layers)` 抽取指定層
-   - `ReshapeTokensToImage`：`(B, n_tokens, D) → (B, D, H', W')`
-   - `LearnedInterpolateToPyramidal`：多尺度化為 4 層 pyramid
-4. 回傳 `list[Tensor]`
+1. Call `terratorch.models.backbones.<terramind factory>` to build the encoder.
+2. If `local_ckpt_path` has a value, skip the HuggingFace download and read the local `.ckpt`.
+3. Forward:
+   - The encoder gives a `(B, n_tokens, D)` token sequence for each layer.
+   - `SelectIndices(select_layers)` gets the specified layers.
+   - `ReshapeTokensToImage`: `(B, n_tokens, D) → (B, D, H', W')`
+   - `LearnedInterpolateToPyramidal`: makes a 4-level multi-scale pyramid.
+4. Return `list[Tensor]`.
 
-三個 helper 以純 `nn.Module` 實作於同檔內，**不進 terratorch registry**。
+The three helpers are plain `nn.Module` classes in the same file. **They are not in the terratorch registry**.
 
-**離線權重**：`local_ckpt_path` 可指向手動下載的
-`artifacts/backbones/terramind_v1_base.ckpt`，或由既有 HuggingFace cache 符號連結而來。
+**Offline weights**: `local_ckpt_path` can point to a manually downloaded
+`artifacts/backbones/terramind_v1_base.ckpt`. It can also be a symbolic link from the current HuggingFace cache.
 
-**凍結**：`freeze=True` 關閉所有 encoder 參數 `.requires_grad`，用於只訓 decoder + head。
+**Freeze**: `freeze=True` sets `.requires_grad` off for all encoder parameters. Use it to train only the decoder + head.
 
-**依賴**：`pyproject.toml` 加 `terratorch`，執行 `uv sync --python 3.10`。動手前先
-`uv add terratorch --dry-run` 檢查是否與 `ml4floods` / `lightning` 衝突；若衝突，優先
-方向為升級 `lightning`。
+**Dependency**: Add `terratorch` to `pyproject.toml`, then run `uv sync --python 3.10`.
+Before you start, run `uv add terratorch --dry-run`. Make sure that it does not conflict with `ml4floods` / `lightning`.
+If there is a conflict, first try to upgrade `lightning`.
 
 ---
 
-## 7. Config：四段結構完全沿用
+## 7. Config: Keep the Same Four-Section Structure
 
-`configurations/fm_baseline.json` 維持 `shared / train / infer / validate_only` 四段，
-`utils/config_loader.load_mode_config()` **零改動**即可讀取。
+`configurations/fm_baseline.json` keeps the four sections `shared / train / infer / validate_only`.
+`utils/config_loader.load_mode_config()` can read it with **zero changes**.
 
-`shared.model_params.hyperparameters` 新增欄位：
+New fields in `shared.model_params.hyperparameters`:
 
-| 欄位 | 型別 | 用途 |
+| Field | Type | Purpose |
 |---|---|---|
-| `model_type` | `"fm_baseline"` | 給 dispatch 用 |
-| `backbone` | `"terramind_v1_base"` | TerraMind 變體 |
-| `backbone_modalities` | `["S2L2A"]` 或 `["S1GRD"]` | 骨幹接受之模態 |
-| `backbone_pretrained` | `bool` | 是否走 HF 下載 |
-| `backbone_local_ckpt` | `str \| null` | 離線權重路徑 |
-| `backbone_select_layers` | `[int, int, int, int]` | Encoder 抽取層，預設 `[2, 5, 8, 11]` |
-| `backbone_freeze` | `bool` | 是否凍結骨幹 |
-| `decoder_channels` | `[int, int, int, int]` | UNet decoder 每階通道，預設 `[512, 256, 128, 64]` |
+| `model_type` | `"fm_baseline"` | For the dispatch |
+| `backbone` | `"terramind_v1_base"` | TerraMind variant |
+| `backbone_modalities` | `["S2L2A"]` or `["S1GRD"]` | Modalities that the backbone accepts |
+| `backbone_pretrained` | `bool` | Download from HF or not |
+| `backbone_local_ckpt` | `str \| null` | Path of the offline weights |
+| `backbone_select_layers` | `[int, int, int, int]` | Encoder layers to get. Default is `[2, 5, 8, 11]` |
+| `backbone_freeze` | `bool` | Freeze the backbone or not |
+| `decoder_channels` | `[int, int, int, int]` | Channels of each UNet decoder stage. Default is `[512, 256, 128, 64]` |
 
-`channel_configuration` 等既有 key 照常沿用。**不含**任何不確定性、融合、多任務欄位。
+Current keys such as `channel_configuration` stay the same. The config **does not include** uncertainty, fusion, or multi-task fields.
 
 ---
 
-## 8. Script 與 smoke
+## 8. Script and Smoke
 
-`scripts/train/train_fm_baseline.py` 以 `train_v2.py` 為樣板，**只換 model 建構那一行**：
+`scripts/train/train_fm_baseline.py` uses `train_v2.py` as a template. **Change only the line that builds the model**:
 
 ```python
 # train_v2.py：
@@ -272,44 +276,44 @@ model = get_model(config.model_params)                # ml4floods 那顆
 model = FMBaselineSegModel(config.model_params)       # 內部組 TerraMind + decoder + head
 ```
 
-其餘邏輯（`--config` / `--mode` / `--resume_ckpt` / `--data_root`、callbacks、logger、
-optimizer、`trainer.fit()`）逐字複製，CLI 體驗與其他 model 一致：
+Copy all other logic word for word (`--config` / `--mode` / `--resume_ckpt` / `--data_root`, callbacks, logger,
+optimizer, `trainer.fit()`). The CLI is then the same as for the other models:
 
 ```bash
 uv run python scripts/train/train_fm_baseline.py --config configurations/fm_baseline.json --mode train
 ```
 
-Smoke 沿用既有 `SMOKE_TRAIN_MODEL` dispatch，只需在 `smoke_train.sh` 加一行：
+The smoke test uses the current `SMOKE_TRAIN_MODEL` dispatch. Add only one line to `smoke_train.sh`:
 
 ```bash
 SMOKE_TRAIN_MODEL=FM_BASELINE bash scripts/smoke/smoke_train.sh
 ```
 
-**推論**：baseline 階段沿用 `run_inference.py` 的 `v2` 分支即可（單張輸出），不需新增
-model_type。
+**Inference**: In the baseline phase, use the `v2` branch of `run_inference.py` (single output). You do not have to add a new
+model_type.
 
 ---
 
-## 9. 與既有 model type 並列
+## 9. Parallel to the Current Model Types
 
-| model_type | 骨幹 | 用途 |
+| model_type | Backbone | Purpose |
 |---|---|---|
 | `v2` | ml4floods `get_model()` | baseline segmentation |
-| `EDL` | ml4floods `get_model()` | 單模型不確定性 |
-| `EDL-SAR` | ml4floods `get_model()`（SAR 專用） | SAR 版本 |
-| `ensemble` | ml4floods `get_model()`（多顆） | 深度整合不確定性 |
-| `dropout` | ml4floods `get_model()`（加 dropout） | MC Dropout |
-| **`fm_baseline`（新）** | **TerraMind v1 base** | **驗證骨幹接線與表徵可用性** |
+| `EDL` | ml4floods `get_model()` | Single-model uncertainty |
+| `EDL-SAR` | ml4floods `get_model()` (SAR only) | SAR version |
+| `ensemble` | ml4floods `get_model()` (multiple models) | Deep ensemble uncertainty |
+| `dropout` | ml4floods `get_model()` (with dropout) | MC Dropout |
+| **`fm_baseline` (new)** | **TerraMind v1 base** | **Verify the backbone connection and that the representation is usable** |
 
-每個 model type 各自有 config、script、model 類別，**完全平行**。實務上可以在同一個
-branch 一邊跑 fm_baseline 實驗，另一邊 EDL 訓練照跑不誤——它們讀不同 config、跑不同
-script、產出不同 checkpoint 目錄。
+Each model type has its own config, script, and model class. They are **fully parallel**.
+In practice, you can run fm_baseline experiments and EDL training on the same branch at the same time.
+They read different configs, run different scripts, and write to different checkpoint directories.
 
 ---
 
-## 10. 與 BEF 握手
+## 10. Handshake with BEF
 
-BEF 側完成後會有一支 `models/bef.py`，其 `__init__` 需注入兩顆 backbone：
+When the BEF side is complete, there will be a `models/bef.py`. Its `__init__` must inject two backbones:
 
 ```python
 model = BEF_ML4FloodsModel(
@@ -319,18 +323,18 @@ model = BEF_ML4FloodsModel(
 )
 ```
 
-**注入即握手**——FM 側只負責造出一顆吃 dict、吐 pyramid list、暴露 `out_channels` 的
-`nn.Module`，BEF 側只負責拿進來用。兩邊在時間軸上獨立完成，最後在
-`scripts/train/train_bef.py` 組裝時才碰面。
+**The injection is the handshake**. The FM side only makes an `nn.Module` that accepts a dict, gives a pyramid list, and exposes `out_channels`.
+The BEF side only uses it. The two sides finish independently.
+They meet only at assembly time in `scripts/train/train_bef.py`.
 
-BEF 雙塔是 §3.2 列出的觸發條件之一：屆時有兩顆骨幹實例（S1 / S2）、且可能想替換骨幹
-種類，這時補上 `BackboneProtocol` 才有實際對象可抽象。
+The BEF dual-tower model is one of the trigger conditions in §3.2. At that time, there are two backbone instances (S1 / S2).
+We may also want to replace the backbone type. Then `BackboneProtocol` has a real thing to abstract.
 
-詳見 [`BEF_integration_plan.md`](./BEF_integration_plan.md)。
+For more information, refer to [`BEF_integration_plan.md`](./BEF_integration_plan.md).
 
 ---
 
-## 11. 里程碑
+## 11. Milestones
 
 ```
 F1 依賴解析 ─▶ F2 骨幹包裝 ─▶ F3 離線權重接口 ─▶ F4 baseline 模型 smoke
@@ -339,39 +343,40 @@ F1 依賴解析 ─▶ F2 骨幹包裝 ─▶ F3 離線權重接口 ─▶ F4 ba
                                                 F5 baseline train smoke ─▶ F6 完整訓練驗證
 ```
 
-| 里程碑 | 交付內容 | 驗證方式 | 估算 |
+| Milestone | Deliverable | Verification | Estimate |
 |---|---|---|---|
-| **F1** | `pyproject.toml` 加 terratorch + `uv sync` 成功 | `uv run python -c "import terratorch"` 通過 | 0.5 天 |
-| **F2** | `backbones/terramind_backbone.py` | CPU dummy input → pyramid shape 正確；`out_channels` / `downsample_ratios` 與實際輸出一致 | 1 天 |
-| **F3** | 離線 ckpt 路徑接口 | 給定假 ckpt 路徑檢查跳過 HF 下載 | 0.5 天 |
-| **F4** | `models/fm_baseline.py` + smoke | `pytest tests/test_fm_baseline_smoke.py` 一輪 forward + backward | 0.5 天 |
-| **F5** | `fm_baseline.json` + `train_fm_baseline.py` + smoke | `SMOKE_TRAIN_MODEL=FM_BASELINE` 跑 1 epoch | 0.5 天 |
-| **F6** | sen1floods11 train/val 完整訓練，記錄 mIoU | 對比既有 v2 baseline 有進步或至少相當 | 另計 |
+| **F1** | Add terratorch to `pyproject.toml` + `uv sync` is successful | `uv run python -c "import terratorch"` passes | 0.5 days |
+| **F2** | `backbones/terramind_backbone.py` | CPU dummy input → correct pyramid shape. `out_channels` / `downsample_ratios` agree with the real output | 1 day |
+| **F3** | Offline ckpt path interface | With a fake ckpt path, make sure that the HF download is skipped | 0.5 days |
+| **F4** | `models/fm_baseline.py` + smoke | `pytest tests/test_fm_baseline_smoke.py` runs one forward + backward | 0.5 days |
+| **F5** | `fm_baseline.json` + `train_fm_baseline.py` + smoke | `SMOKE_TRAIN_MODEL=FM_BASELINE` runs 1 epoch | 0.5 days |
+| **F6** | Full training on sen1floods11 train/val. Record the mIoU | Better than or at least equal to the current v2 baseline | Not included |
 
-**F1–F4 為純接線工作，無需 GPU**；F5–F6 涉及訓練實境。里程碑**不依賴下游任務選型**：
-F1–F5 可完全不觸及不確定性、融合、多任務等議題。
+**F1–F4 are only connection work and do not need a GPU**. F5–F6 include real training.
+The milestones **do not depend on the selection of the downstream task**.
+F1–F5 do not have to touch uncertainty, fusion, multi-task, or related topics.
 
-總計約 2.5–3 天 + F6 訓練時間。
+The total is approximately 2.5–3 days + the F6 training time.
 
 ---
 
-## 12. 風險登記
+## 12. Risk Register
 
-| # | 風險 | 對策 |
+| # | Risk | Countermeasure |
 |---|---|---|
-| 1 | `terratorch` 與現有 `ml4floods` / `lightning` 版本衝突 | F1 前先 `uv add --dry-run`；必要時鎖 `lightning` 版本 |
-| 2 | HuggingFace 權重於訓練節點下載失敗 | `backbone_local_ckpt` 接口於 F2 就定義並測試 |
-| 2b | 暫不抽象介面，日後補 Protocol 時發現呼叫慣例已走樣 | F2 測試斷言 `out_channels` / `downsample_ratios` 與實際輸出一致，鎖住形狀 |
-| 3 | TerraMind base 骨幹顯存壓力（尤其 BEF 雙塔） | `freeze=True`、`precision: bf16-mixed`、小 batch、gradient checkpointing |
-| 4 | Token → image reshape 座標順序錯誤 | F2 dummy input 測試檢查空間 anchor（左上像素 ↔ 左上 token） |
-| 5 | Baseline mIoU 明顯低於 v2 | 檢查三件事：(a) 波段順序是否符合 TerraMind L2A 預期 (b) 正規化統計 (c) `select_layers` 是否合理 |
-| 6 | `terratorch` 更新破壞 API | `pyproject.toml` 鎖定 minor 版本，CI 加 smoke test 早期偵測 |
+| 1 | `terratorch` has a version conflict with the current `ml4floods` / `lightning` | Run `uv add --dry-run` before F1. If necessary, lock the `lightning` version |
+| 2 | The HuggingFace weight download fails on the training node | Define and test the `backbone_local_ckpt` interface in F2 |
+| 2b | We do not abstract the interface now. When we add the Protocol later, the call convention has changed | The F2 test asserts that `out_channels` / `downsample_ratios` agree with the real output. This locks the shape |
+| 3 | GPU memory pressure from the TerraMind base backbone (especially the BEF dual-tower model) | `freeze=True`, `precision: bf16-mixed`, a small batch, gradient checkpointing |
+| 4 | Incorrect coordinate order in the token → image reshape | The F2 dummy input test checks the spatial anchor (top-left pixel ↔ top-left token) |
+| 5 | The baseline mIoU is much lower than v2 | Check three items: (a) the band order agrees with the TerraMind L2A expectation (b) the normalization statistics (c) `select_layers` is reasonable |
+| 6 | A `terratorch` update breaks the API | Lock the minor version in `pyproject.toml`. Add a smoke test to CI to find problems early |
 
-**不在本文件風險範圍**：融合公式錯誤、多分支損失權重、KL 退火行為——屬下游任務工作。
+**Not in the risk scope of this document**: fusion formula errors, multi-branch loss weights, and KL annealing behavior. These are downstream task work.
 
 ---
 
-## 13. 相關文件
+## 13. Related Documents
 
-- [`BEF_integration_plan.md`](./BEF_integration_plan.md)：BEF 融合方法（下游，可獨立進行）
-- [`architecture.md`](./architecture.md)：既有架構的模組與類別圖
+- [`BEF_integration_plan.md`](./BEF_integration_plan.md): BEF fusion method (downstream, can be done independently)
+- [`architecture.md`](./architecture.md): Modules and class diagrams of the current architecture

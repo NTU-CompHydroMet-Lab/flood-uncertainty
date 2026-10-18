@@ -1,0 +1,105 @@
+{
+  "shared": {
+    "experiment_name": "tm_s1grd_kuro_s1f11",
+    "seed": 42,
+    "model_params": {
+      "pretrained_path": "artifacts/models/edl_terramind_sar_kurosiwo_s1grd/checkpoint/epoch=23-step=73152.ckpt",
+      "model_folder": "artifacts/models/terramind_sen1",
+      "model_version": "v2",
+      "hyperparameters": {
+        "max_tile_size": 256,
+        "metric_monitor": "val_bce_land_water",
+        "channel_configuration": "sar",
+        "weight_problem": [
+          1.0
+        ],
+        "pos_weight": [
+          [
+            1,
+            6
+          ]
+        ],
+        "label_names": [
+          [
+            "invalid",
+            "land",
+            "water"
+          ]
+        ],
+        "model_type": "edl_terramind",
+        "num_classes": 1,
+        "annealing_mode": "linear",
+        "annealing_coefficient": 0.5,
+        "annealing_step": 30,
+        "max_epochs": 30,
+        "val_every": 1,
+        "lr": 0.0001,
+        "lr_decay": 0.5,
+        "lr_patience": 2,
+        "early_stopping_patience": 50,
+        "num_channels": 2,
+        "backbone": "terramind_v1_base",
+        "backbone_impl": "vendored",
+        "backbone_modalities": [
+          "S1GRD"
+        ],
+        "backbone_pretrained": true,
+        "backbone_local_ckpt": null,
+        "backbone_select_layers": [
+          2,
+          5,
+          8,
+          11
+        ],
+        "backbone_freeze": false,
+        "backbone_renormalize_input": true,
+        "backbone_lr_mult": 0.1,
+        "decoder_channels": [
+          512,
+          256,
+          128,
+          64
+        ],
+        "backbone_s1_input": {
+          "units": "sen1_scaled_db_zscore",
+          "mean": [
+            0.6851,
+            0.5235
+          ],
+          "std": [
+            0.082,
+            0.1102
+          ]
+        }
+      }
+    },
+    "data_params": {
+      "dataset_type": "sen1floods11",
+      "root_path": "/home/NAS/house/chlunchen-10030/datasets/sen1floods11_v1.1",
+      "tile_size": 256,
+      "batch_size": 4,
+      "num_workers": 4,
+      "data_augmentations": false,
+      "modality": "sar",
+      "num_channels": 2,
+      "channel_configuration": "sar",
+      "sar_units": "db",
+      "sar_normalization": "sen1_official"
+    },
+    "resume_from_checkpoint": false,
+    "gpus": 0,
+    "wandb_entity": null,
+    "wandb_project": "flood_uncertainty_edl_terramind_sar",
+    "wandb_mode": "offline",
+    "wandb_log_model": false
+  },
+  "train": {
+    "model_params": {}
+  },
+  "infer": {
+    "model_params": {}
+  },
+  "validate_only": {
+    "model_params": {}
+  }
+}
