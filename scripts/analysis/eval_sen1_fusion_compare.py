@@ -53,8 +53,10 @@ def resolve_ckpt(path):
     return found[0]
 
 
-def load_model(cfg_path, ckpt, device):
+def load_model(cfg_path, ckpt, device, splits_path=None):
     cfg = load_mode_config(cfg_path, mode="train")
+    if splits_path:
+        cfg.data_params["splits_path"] = str(splits_path)
     hp, dp = cfg.model_params.hyperparameters, cfg.data_params
     modality = dp.get("modality")
     if hp.get("model_type") == "edl_terramind":
@@ -100,6 +102,8 @@ def main():
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--boot", type=int, default=10000)
     p.add_argument("--max-batches", type=int, default=None)
+    p.add_argument("--splits-path", type=Path, default=None,
+                   help="Folder with flood_{train,valid,test}_data.txt, e.g. to test on the Bolivia hold-out")
     a = p.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -110,7 +114,7 @@ def main():
     for name, c, k in a.single:
         models[name] = (c, resolve_ckpt(k))
     ckpts = {key: k for key, (_, k) in models.items()}
-    models = {key: load_model(c, k, device) for key, (c, k) in models.items()}
+    models = {key: load_model(c, k, device, a.splits_path) for key, (c, k) in models.items()}
 
     sample_lists = {key: collect_sen1_splits(cfg.data_params if cfg.data_params.modality != "paired"
                                              else split_configs(cfg.data_params)[0])[a.split]

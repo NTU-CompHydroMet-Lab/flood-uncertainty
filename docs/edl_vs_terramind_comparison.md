@@ -40,6 +40,10 @@ All differences are differences of water IoU (ΔIoU). The interval after each di
 - **SAR (Kuro Siwo, §8)**: On Kuro Siwo test, `tm_s1grd@ep23` minus `unet_s1@ep17` is +0.0224.
   The event bootstrap CI is [−0.0015, +0.0423]. `tm_s1grd` is better on 7 of 10 events.
   On Bolivia, the difference is +0.3550 [+0.2142, +0.4857]. TiM makes the SAR model significantly worse on Kuro Siwo test (−0.0146 [−0.0221, −0.0013]).
+- **Sen1Floods11 late fusion (§9)**: BEF (optical and SAR TerraMind with stage-1 training, fine-tuned on Sen1Floods11, DEUF sum)
+  is not better than one multi-modal TerraMind: test −0.0222 [−0.0619, +0.0035], Bolivia −0.0519 [−0.0872, −0.0263].
+  In all three late-fusion systems, the fused output is worse than the optical branch alone.
+  The main cause is the SAR branch: when only the SAR branch is sure, it is correct on only 45.30% of the pixels, and DEUF follows it.
 
 ## 1. Experiments
 
@@ -531,6 +535,121 @@ We measured one forward pass of one tile with `torch.utils.flop_counter` (optica
 - `tests/test_sar_structure.py` expects 2 channels, but `configurations/edl_sar.json` has 6 channels. Thus, the test fails now (the upstream settings do not agree).
 - For SAR, the retention AUC from water IoU is low. The most certain pixels are mostly land, thus the IoU is defined only at a high retention.
   We do not use this value for conclusions.
+
+## 9. Sen1Floods11 late fusion (BEF / DEUF)
+
+**Question**: Is the late fusion of an optical model and a SAR model better than one multi-modal model?
+All models are fine-tuned on Sen1Floods11 train. All models use the full TerraMind encoder (no frozen layers), except the UNet reference.
+
+**Settings**
+- Training script: `scripts/train/train_edl_terramind_sen1.py`. Configuration files: `configurations/terramind_sen1/`.
+  Experiment directories: `artifacts/models/terramind_sen1/`.
+- Batch size 4. 30 epochs. Learning rate 1e-4 (encoder × 0.1). Tile 256. `pos_weight` [1, 6]. No augmentation.
+  KL annealing step: 10 for optical and multi-modal, 30 for SAR (the same values as the teammate's Sen1Floods11 configurations).
+- Labels: water only (LabelHand). Sen1Floods11 data: 252 / 89 / 90 source images (train / val / test), 1,008 / 356 / 360 windows of 256 × 256.
+- Stage-1 initialization: the optical model loads `tm_l1c13@ep7` (the 4-channel cloud + water head is reduced to the water channels).
+  The SAR model loads `tm_s1grd@ep23`. The input re-normalization buffers come from the Sen1Floods11 configuration, not from the checkpoint.
+- Checkpoint rule: lowest val BCE (the same rule as §2).
+- Fusion (DEUF, `flood_uncertainty/fusion/evidence_sum.py`): e_f = e_SAR + e_optical; α = e_f + 1; water when α_water / S ≥ 0.5.
+  This section uses only this original rule.
+- Evaluation: `scripts/analysis/eval_sen1_fusion_compare.py`. All entries use the same windows and the same pixel mask
+  (SAR valid, optical valid and GT valid). The paired bootstrap resamples the source images (10,000 resamples).
+  Bolivia: the 15 images of `splits/flood_bolivia_data.txt` (`--splits-path`). No model uses them for training or validation.
+
+| Name | Optical branch (best epoch) | SAR branch (best epoch) | Stage-1 data |
+|---|---|---|---|
+| BEF | `tm_l1c13_wf_s1f11` (ep12) | `tm_s1grd_kuro_s1f11` (ep15) | WorldFloods / Kuro Siwo |
+| direct (baseline b) | `tm_l1c13_s1f11` (ep25) | `tm_s1grd_s1f11` (ep16) | none (TerraMind pre-training only) |
+| multimodal (baseline a) | `tm_l1c13_s1grd_s1f11` (ep10): one encoder, S2L1C + S1GRD input | — | none |
+| UNet DEUF (reference) | teammate's `edl_optical_sen1floods11` (ep9, 6 bands) | teammate's `edl_sar_sen1floods11` (ep17) | WorldFloods UNet |
+
+**Results** (water IoU; the retention AUC is for the fused or multi-modal output)
+
+| System | Test SAR | Test optical | Test fused | Test retention AUC | Bolivia SAR | Bolivia optical | Bolivia fused | Bolivia retention AUC |
+|---|---|---|---|---|---|---|---|---|
+| BEF | 0.6696 | 0.8171 | 0.7845 | 0.8034 | 0.5905 | 0.7934 | 0.7545 | 0.8574 |
+| direct | **0.6814** | 0.8059 | 0.7848 | 0.7173 | **0.6384** | 0.7756 | 0.7745 | 0.7546 |
+| multimodal | — | — | 0.8067 | 0.7312 | — | — | **0.8064** | 0.6223 |
+| UNet DEUF | 0.6534 | **0.8392** | **0.8127** | **0.9535** | 0.5851 | **0.8173** | 0.7578 | **0.9493** |
+
+Test: 360 windows (90 images). Bolivia: 60 windows (15 images). The UNet DEUF test values agree with the teammate's evaluation
+(0.6534 / 0.8392 / 0.8126; the fused value is 0.8127 on GPU).
+
+| Comparison (row minus column) | Test | Bolivia |
+|---|---|---|
+| BEF fused − multimodal | −0.0222 [−0.0619, +0.0035] | −0.0519 [−0.0872, −0.0263] |
+| BEF fused − direct fused | −0.0003 [−0.0079, +0.0075] | −0.0201 [−0.0481, −0.0012] |
+| BEF fused − UNet DEUF fused | −0.0282 [−0.0536, −0.0092] | −0.0033 [−0.0287, +0.0335] |
+| multimodal − UNet DEUF fused | −0.0059 [−0.0240, +0.0137] | +0.0486 [+0.0155, +0.1033] |
+| BEF fused − BEF optical | −0.0326 [−0.0705, −0.0074] | −0.0389 [−0.0699, −0.0089] |
+| direct fused − direct optical | −0.0212 [−0.0540, +0.0001] | −0.0011 [−0.0184, +0.0226] |
+| UNet DEUF fused − UNet optical | −0.0265 [−0.0515, −0.0072] | −0.0595 [−0.1107, −0.0300] |
+| BEF optical − direct optical | +0.0111 [+0.0042, +0.0177] | +0.0178 [−0.0142, +0.0419] |
+| BEF SAR − direct SAR | −0.0119 [−0.0210, −0.0041] | −0.0479 [−0.1193, +0.0115] |
+| BEF optical − UNet optical | −0.0221 [−0.0357, −0.0104] | −0.0239 [−0.0555, −0.0084] |
+| BEF SAR − UNet SAR | +0.0161 [−0.0101, +0.0435] | +0.0054 [−0.0390, +0.0639] |
+
+**Result conclusions**
+- BEF is not better than the two baselines. On test, BEF and direct are equal. On Bolivia, BEF is significantly worse than both.
+- The fused output is worse than the optical branch alone in all three late-fusion systems (significant for BEF and for the UNet).
+- Stage-1 training helps the optical branch (WorldFloods: +0.0111 on test, significant). It makes the SAR branch worse (Kuro Siwo: −0.0119 on test, significant).
+  After fusion, the two effects cancel.
+- The UNet DEUF reference is the best on test. On Bolivia, the multi-modal TerraMind is the best and significantly better than the UNet DEUF.
+- The UNet branches have a much higher retention AUC. Their uncertainty identifies their errors better.
+
+### 9.1 Agreement and confidence of the two branches
+
+Script: `scripts/analysis/sen1_conflict_stats.py` (per pixel, BEF pair, original DEUF sum).
+A branch is "sure" when its DST uncertainty u = 2 / S ≤ 0.2 (S ≥ 10). We selected this threshold to describe the results, not to tune a method.
+The per-image values are in `conflict_stats_images.csv`.
+
+| Branches | Confidence | Test pixels | Test: SAR / optical / fused correct | Bolivia pixels | Bolivia: SAR / optical / fused correct |
+|---|---|---|---|---|---|
+| Agree | both sure | 88.48% | 99.54% | 79.20% | 99.64% |
+| Agree | not both sure | 6.94% | 83.80% | 12.97% | 86.67% |
+| Disagree | only optical sure | 1.39% | 3.25% / 96.75% / 96.75% | 2.61% | 5.33% / 94.67% / 94.67% |
+| Disagree | only SAR sure | 1.19% | 45.30% / 54.70% / **45.30%** | 1.88% | 43.92% / 56.08% / **43.92%** |
+| Disagree | both sure | 0.69% | 3.84% / 96.16% / 68.39% | 1.07% | 5.67% / 94.33% / 73.21% |
+| Disagree | neither sure | 1.31% | 34.40% / 65.60% / 57.64% | 2.26% | 35.06% / 64.94% / 58.32% |
+
+- When only one branch is sure, DEUF follows that branch. This is the expected behaviour of the evidence sum.
+- When only the optical branch is sure, it is correct on 96.75% of the pixels. Thus, the fusion is correct there.
+- When only the SAR branch is sure, it is correct on only 45.30% of the pixels (test). Thus, the fusion is wrong on more than half of these pixels.
+  The other systems show the same problem: fused correct 51.83% (direct) and 38.48% (UNet DEUF).
+- When both branches are sure and disagree, the optical branch is correct on 96.16% of the pixels, but the fusion is correct on only 68.39%.
+- Conclusion: the fusion rule operates correctly. The SAR uncertainty is not reliable: the SAR branch is often sure when it is wrong.
+
+### 9.2 Conditions of the disagreement
+
+Scripts: `sen1_window_features.py` (cloud and SAR features per window), `sen1_bef_sample_analysis.py` (per image and per condition),
+`sen1_fusion_evidence_analysis.py` (per pixel evidence), `sen1_divergence_cases.py` (case figures, `artifacts/results/sen1_divergence_cases/`).
+Cloud: `S2CloudlessMask` (uint8 0 to 255, cloud when the probability ≥ 50%).
+
+- **The labels exclude most thick clouds.** Of the LabelHand −1 (no label) pixels, 45.6% are cloud. Of the evaluated pixels, only 10.9% are cloud (test, mean of the windows).
+  Thus, the test does not contain the condition where the SAR branch must replace the optical branch.
+- **In the cloudy windows, the fusion becomes worse.** Windows with more than 20% cloud in the evaluation mask (48 test windows):
+  BEF fused 0.5735, BEF optical 0.6787, multimodal 0.7005.
+  The SAR recall also decreases (from 0.874 in cloud-free windows to 0.581). Thus, the cause is not the cloud itself.
+  The S1 and S2 acquisitions are 0 to 2 days apart (`Sen1Floods11_Metadata.geojson`), thus the time difference is not the main cause.
+- **Disagreement cases** (the 8 test images with the largest disagreement share; they have 43.8% of all disagreement pixels):
+  - The SAR branch misses shallow water and flooded fields (`India_747992`, `Pakistan_849790`, `Somalia_685158`).
+    The VH median of these pixels is −15.9 to −20.6 dB, which is not dark. A VH Otsu threshold also fails on the same pixels.
+  - The SAR branch finds water on dark land (VH < −23 dB; `USA_595451`, `India_900498`). The GT and the MNDWI show land.
+    In `USA_595451`, the median u of the wrong SAR pixels is 0.063 (very sure).
+  - In `Sri-Lanka_649970`, the VH Otsu mask (78%) and the MNDWI Otsu mask (47%) show water where the GT shows land.
+    The GT can be incorrect there. The annotators drew the GT on the S2 image.
+  - In `Pakistan_849790`, the optical uncertainty increases under thin cloud (median u 0.326). But the wrong SAR branch is more sure (median u 0.178).
+    Thus, the fusion is correct on only 43.8% of the disagreement pixels.
+- **Spain leakage check** (6 Spain test images overlap WorldFloods EMSR388): BEF optical minus direct optical is +0.0184 on Spain.
+  This is approximately the same as on Somalia (+0.0183) and USA (+0.0182). Thus, we do not see an effect of the leakage.
+
+### 9.3 Limitations of §9
+
+- One seed for each model.
+- The UNet reference models are from a teammate. They use 6 optical bands, and their initialization and pipeline are different.
+- The MNDWI and the GT are both from S2. Thus, their agreement is partly circular. An independent reference (for example a Copernicus EMS map) is necessary to decide when the SAR branch is correct.
+- Late-fusion rules other than the original sum (SAR weight, cloud discount, Dempster combination) are in `scripts/analysis/sen1_fusion_rules.py`.
+  This document does not report them.
 
 ## Appendix A: frozen encoder (`tm_frozen_l2a6`, 1024 tiles)
 
