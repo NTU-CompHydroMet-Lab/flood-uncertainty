@@ -44,6 +44,18 @@ def predict_sar(
 
     values = preprocess_sar(image, data_config)
     tensor = values if isinstance(values, torch.Tensor) else torch.from_numpy(values)
+    return predict_sar_normalized(model, tensor, threshold=threshold, max_tile_size=max_tile_size)
+
+
+def predict_sar_normalized(
+    model: EDL_SAR_Unet,
+    tensor: torch.Tensor,
+    *,
+    threshold: float = 0.5,
+    max_tile_size: int = 1024,
+) -> dict[str, np.ndarray]:
+    """Predict an already normalized (C, H, W) SAR tensor and return class and EDL uncertainty products."""
+
     if tensor.ndim != 3:
         raise ValueError(f"Expected (C, H, W) SAR input, got {tuple(tensor.shape)}")
     expected_channels = model.hparams["model_params"]["hyperparameters"]["num_channels"]
