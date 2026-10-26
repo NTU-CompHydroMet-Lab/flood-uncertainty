@@ -4,6 +4,7 @@
     "seed": 42,
     "model_params": {
       "pretrained_path": null,
+      "inference_weights": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/models/edl_sar_kurosiwo_unet_s1_bs16/checkpoint/epoch=17-step=54864.ckpt",
       "model_folder": "artifacts/models",
       "model_version": "v2",
       "hyperparameters": {

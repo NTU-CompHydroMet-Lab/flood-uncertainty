@@ -17,7 +17,10 @@ def main() -> None:
     parser.add_argument("input_tif", help="2-band VV/VH TIFF, or VV only together with --vh")
     parser.add_argument("output_tif")
     parser.add_argument("--config", default="configurations/terramind_sar/tm_s1grd.json")
-    parser.add_argument("--weights", required=True, help="Trained TerraMind SAR checkpoint")
+    parser.add_argument(
+        "--weights", default=None,
+        help="Trained TerraMind SAR checkpoint (default: model_params.inference_weights in --config)",
+    )
     parser.add_argument("--vh", default=None, help="VH TIFF when input_tif contains only VV")
     parser.add_argument("--valid-mask", default=None, help="KuroSiwo MK0_MNA TIFF (1=valid)")
     parser.add_argument("--threshold", type=float, default=0.5)

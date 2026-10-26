@@ -4,6 +4,7 @@
     "seed": 42,
     "model_params": {
       "pretrained_path": null,
+      "inference_weights": "/home/NAS/house/ycchen-10014/repo/flood-uncertainty/artifacts/models/terramind_sen1/tm_s1grd_s1f11/checkpoint/epoch=16-step=4284.ckpt",
       "model_folder": "artifacts/models/terramind_sen1",
       "model_version": "v2",
       "hyperparameters": {

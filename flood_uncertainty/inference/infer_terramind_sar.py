@@ -38,13 +38,17 @@ def check_s1_input_matches_data(config: Any) -> None:
         )
 
 
-def load_terramind_sar_model(config: Any, weights_path: str) -> EDL_TerraMind_SAR:
+def load_terramind_sar_model(config: Any, weights_path: str | None = None) -> EDL_TerraMind_SAR:
     """Load a TerraMind SAR EDL model from a Lightning checkpoint or state dict.
 
-    ``weights_path`` is required: ``pretrained_path`` in a fine-tune config is the initialisation
-    checkpoint (e.g. the KuroSiwo model for ``tm_s1grd_kuro_s1f11``), not the trained model.
+    The checkpoint is ``weights_path``, else ``model_params.inference_weights``. ``pretrained_path``
+    is never used: in a fine-tune config it is the initialisation checkpoint (e.g. the KuroSiwo model
+    for ``tm_s1grd_kuro_s1f11``), not the trained model.
     """
 
+    weights_path = weights_path or config.model_params.get("inference_weights")
+    if not weights_path:
+        raise ValueError("A TerraMind SAR checkpoint is required (--weights or model_params.inference_weights)")
     hp = config.model_params.hyperparameters
     if hp.get("model_type") != "edl_terramind":
         raise ValueError(f"Expected model_type edl_terramind, got {hp.get('model_type')}")

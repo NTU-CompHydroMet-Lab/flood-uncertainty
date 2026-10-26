@@ -14,7 +14,11 @@ from flood_uncertainty.preprocessing.sar import preprocess_sar
 def load_sar_model(config: Any, weights_path: str | None = None) -> EDL_SAR_Unet:
     """Load an EDL SAR model from a Lightning checkpoint or state dict."""
 
-    path = weights_path or config.model_params.get("pretrained_path")
+    path = (
+        weights_path
+        or config.model_params.get("inference_weights")
+        or config.model_params.get("pretrained_path")
+    )
     if not path:
         raise ValueError("A SAR checkpoint path is required")
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
