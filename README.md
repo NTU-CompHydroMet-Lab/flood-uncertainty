@@ -151,11 +151,33 @@ uv run python -m pytest -c pyproject.toml -q tests/test_optical_regression.py
 ### 7.1 單支執行
 
 ```bash
-uv run python scripts/analysis/analysis_S2.py --model-type EDL --subset val --max-files 1
+uv run python scripts/analysis/analysis_S2.py --model-type EDL --subset val --output-dir artifacts/results/analysis_S2/val --max-files 1
 uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset val --max-files 1
 uv run python scripts/analysis/plot_retention_curve_compare.py --group all
 uv run python scripts/analysis/plot_epistemic_fp_fn_compare.py --subset val --max-files 1
 ```
+
+`compute_pavpu.py` 預設使用 **val curve 設定門檻、評估 test 影像**。
+`--curve-subset` 選擇門檻來源，`--subset` 選擇待評估影像；兩者可獨立指定：
+
+```bash
+# val curve → test（預設）
+uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset test --curve-subset val
+
+# test curve → test
+uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset test --curve-subset test
+```
+
+預設從 `artifacts/results/analysis_S2/<curve-subset>/<model>/retention_*.csv` 讀取門檻，
+結果寫入 `artifacts/results/analysis_S2/<subset>/<model>/pavpu_from_<curve-subset>/pavpu_*.csv`。
+CSV 會記錄 curve 來源、門檻值、retention target 和 patch size。
+預設取最接近 90% retention 那列的 `threshold` 與 `iou`，分別作為不確定性與 patch IoU 門檻。
+
+如果 curve 位於其他目錄，用 `--curve-root` 指定**包含模型子目錄**的資料夾，
+並以 `--curve-subset` 正確標記該批 curve 的來源。`--output-dir` 可獨立指定輸出根目錄，
+程式會附加 `<model>/pavpu_from_<curve-subset>/`。
+舊的 `--analysis-root` 保留為 `--output-dir` 的別名，**不再用來選擇門檻 CSV**。
+批次與 smoke 腳本會明確指定使用該次執行產生的 curve。
 
 ### 7.2 一鍵執行全部 analysis（含時間與步驟提示）
 

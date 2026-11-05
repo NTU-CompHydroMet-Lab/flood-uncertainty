@@ -86,6 +86,7 @@ SELECTED_CRITERIA["EDL-TERRAMIND"] = SELECTED_CRITERIA["EDL"]
 CONFIG = {
     "model_type":      "EDL",   # ← 切換此處："EDL" "ensemble" 或 "mcdropout"
     "subset":          "test",
+    "curve_subset":    "val",
     "pred_root":       str(DEFAULT_PRED_ROOT),
     "base_output_dir": str(DEFAULT_ANALYSIS_ROOT),
     "patch_size":      3,
@@ -99,9 +100,18 @@ def parse_args():
         description="Compute PAvPU from confusion maps and prediction outputs."
     )
     parser.add_argument("--model-type", choices=["EDL", "EDL-TERRAMIND", "ensemble", "mcdropout"], default=CONFIG["model_type"])
-    parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"])
+    parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"],
+                        help="Image subset to evaluate. Default: test.")
     parser.add_argument("--pred-root", default=CONFIG["pred_root"])
-    parser.add_argument("--analysis-root", default=CONFIG["base_output_dir"])
+    parser.add_argument("--curve-subset", choices=["val", "test"], default=CONFIG["curve_subset"],
+                        help="Subset used to select retention-curve thresholds. Default: val.")
+    parser.add_argument("--curve-root", type=Path,
+                        help="Override the curve folder containing model subfolders. "
+                             "Default: artifacts/results/analysis_S2/<curve-subset>.")
+    parser.add_argument("--output-dir", "--analysis-root", dest="output_dir", type=Path,
+                        help="Output root; <model>/pavpu_from_<curve-subset> is appended. "
+                             "Default: artifacts/results/analysis_S2/<subset>. "
+                             "--analysis-root is an alias for output only.")
     parser.add_argument("--patch-size", type=int, default=CONFIG["patch_size"])
     parser.add_argument("--retention-target", type=float, default=CONFIG["retention_target"])
     parser.add_argument("--max-files", type=int, default=CONFIG["max_files"])
@@ -264,7 +274,7 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
     return per_image_rows, totals
 
 
-def save_results(per_image_rows, totals, subset, output_path):
+def save_results(per_image_rows, totals, subset, output_path, metadata):
     """
     輸出 CSV，格式同 metrics_EDL.csv：
     每張影像一行，最後附上 OVERALL（所有 patch 加總）與 AVERAGE（per-image 平均）。
@@ -299,6 +309,8 @@ def save_results(per_image_rows, totals, subset, output_path):
     }])
 
     result_df = pd.concat([df, overall_row, average_row], ignore_index=True)
+    for name, value in metadata.items():
+        result_df[name] = value
     result_df.to_csv(output_path, index=False)
     print(f"Saved: {output_path}")
 
@@ -308,31 +320,39 @@ def main():
     config = dict(CONFIG)
     config["model_type"] = args.model_type
     config["subset"] = args.subset
+    config["curve_subset"] = args.curve_subset
     config["pred_root"] = args.pred_root
-    config["base_output_dir"] = args.analysis_root
     config["patch_size"] = args.patch_size
     config["retention_target"] = args.retention_target
     config["max_files"] = args.max_files
 
     model_type = config["model_type"]
     subset = config["subset"]
-    base_output_dir = config["base_output_dir"]
+    analysis_root = Path(config["base_output_dir"])
+    curve_subset = config["curve_subset"]
+    curve_root = (args.curve_root or analysis_root / curve_subset).resolve()
+    output_root = (args.output_dir or analysis_root / subset).resolve()
     retention_target = config["retention_target"]
 
-    output_dir = os.path.join(base_output_dir, model_type)
-    os.makedirs(output_dir, exist_ok=True)
+    # 先讀取所有門檻，確認 curve CSV 齊全後再開始計算大影像。
+    thresholds = {
+        name: get_thresholds(model_type, name, curve_root, retention_target)
+        for name in SELECTED_CRITERIA[model_type]
+    }
+    output_dir = output_root / model_type / f"pavpu_from_{curve_subset}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Evaluation subset: {subset}")
+    print(f"Curve subset: {curve_subset}, curve root: {curve_root}")
+    print(f"Output directory: {output_dir}")
 
     for criteria_name in SELECTED_CRITERIA[model_type]:
-        # if criteria_name not in CRITERIA_MENU[model_type]:
-        #     continue
-
         print(f"\n{'='*50}")
         print(f"Criteria: {criteria_name}  |  Model: {model_type}")
         print(f"{'='*50}")
 
-        unc_threshold, acc_threshold = get_thresholds(
-            model_type, criteria_name, base_output_dir, retention_target
-        )
+        curve_csv = curve_root / model_type / f"retention_{criteria_name}.csv"
+        unc_threshold, acc_threshold = thresholds[criteria_name]
+        print(f"  curve_csv        : {curve_csv}")
         print(f"  retention_target : {retention_target}")
         print(f"  unc_threshold    : {unc_threshold:.6f}")
         print(f"  acc_threshold    : {acc_threshold:.6f}  (IoU)")
@@ -346,8 +366,16 @@ def main():
             print("No valid images found, skipping.")
             continue
 
-        output_path = os.path.join(output_dir, f"pavpu_{criteria_name}.csv")
-        save_results(per_image_rows, totals, subset, output_path)
+        output_path = output_dir / f"pavpu_{criteria_name}.csv"
+        metadata = {
+            "curve_subset": curve_subset,
+            "curve_csv": str(curve_csv),
+            "retention_target": retention_target,
+            "unc_threshold": unc_threshold,
+            "acc_threshold": acc_threshold,
+            "patch_size": config["patch_size"],
+        }
+        save_results(per_image_rows, totals, subset, output_path, metadata)
 
 
 if __name__ == "__main__":

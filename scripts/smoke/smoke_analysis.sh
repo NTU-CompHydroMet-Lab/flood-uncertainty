@@ -67,7 +67,9 @@ uv run python scripts/analysis/compute_pavpu.py \
   --model-type "$MODEL_TYPE" \
   --subset "$SUBSET" \
   --pred-root "$PRED_ROOT" \
-  --analysis-root "$ANALYSIS_ROOT" \
+  --curve-subset "$SUBSET" \
+  --curve-root "$ANALYSIS_ROOT" \
+  --output-dir "$ANALYSIS_ROOT/$SUBSET" \
   --patch-size "$PATCH_SIZE" \
   --retention-target "$RETENTION_TARGET" \
   --max-files "$MAX_FILES"

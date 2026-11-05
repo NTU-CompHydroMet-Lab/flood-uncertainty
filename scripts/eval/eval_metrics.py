@@ -103,13 +103,15 @@ if __name__ == "__main__":
             print(f"  [SKIP] Prediction not found: {filename}")
             continue
 
-        # 讀取 S2 RGB
-        s2_path = f"{s2_dir}/{filename}.tif"
-        if not os.path.exists(s2_path):
-            print(f"  [SKIP] S2 not found: {filename}")
-            continue
-        s2_raster = RasterioReader(s2_path).load()
-        s2_rgb = s2_raster.isel({"band": [3, 2, 1]})
+        # 只有繪製 PNG 時才檢查並讀取 S2 RGB
+        s2_rgb = None
+        if plot_png:
+            s2_path = f"{s2_dir}/{filename}.tif"
+            if not os.path.exists(s2_path):
+                print(f"  [SKIP] S2 not found: {filename}")
+                continue
+            # 直接讀取 RGB 波段（Rasterio 編號從 1 起算），保留地理資訊
+            s2_rgb = RasterioReader(s2_path, indexes=[4, 3, 2]).load()
 
         # 計算 metrics 並產生圖片
         result = plot_spatial_confusion_matrix(

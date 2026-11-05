@@ -10,30 +10,31 @@ services:
     group_add:
       - keep-groups 
     working_dir: "${HOME}"
-    shm_size: '32gb'
+    shm_size: '32g'
 
     ports:
-      - "55667:22" 
+      - "55766:22" 
 
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - TERM=xterm-kitty
-      - 
 
     volumes:
       - ${HOME}:${HOME}                     # User home
       - /home/NAS/homes:/home/NAS/homes     # NAS
       - /home/NAS/house:/home/NAS/house 
       - /home/NAS/data:/home/NAS/data 
-      - /home/NAS/datasets:/home/NAS/datasets 
+      # - /home/NAS/datasets:/home/NAS/datasets 
       - ${HOME}/.cache/uv:/opt/uv-cache     
       - ${HOME}/.ssh/container-keys:/etc/ssh/host_keys #
       - /var/lib/sss/pipes:/var/lib/sss/pipes
       - /var/lib/sss/mc:/var/lib/sss/mc:ro
-      - /home/NAS/house/cjchen-10025/.claude:${HOME}/.claude   
-      - /home/NAS/house/cjchen-10025/.codex:${HOME}/.codex   
+      # - /home/NAS/house/cjchen-10025/.claude:${HOME}/.claude   
+      # - /home/NAS/house/cjchen-10025/.codex:${HOME}/.codex   
 
     command: ["sleep", "infinity"] 
+
     devices:
       - nvidia.com/gpu=all
+      

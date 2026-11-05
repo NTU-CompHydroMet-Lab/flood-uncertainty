@@ -92,11 +92,10 @@ def plot_spatial_confusion_matrix(gt_path, pred_path, s2_rgb, model_type="EDL", 
     """
     import matplotlib.pyplot as plt
     
-    # 讀取 GT raster
-    gt_raster = RasterioReader(gt_path).load()
+    # 只讀 GT 第 2 波段（Rasterio 編號從 1 起算），保留地理資訊
+    gt_raster = RasterioReader(gt_path, indexes=[2]).load()
     
-    # 讀取 Prediction raster
-    pred_raster = RasterioReader(pred_path)
+    # 檢查水體機率波段名稱
     with rasterio.open(pred_path) as src:
         if model_type == "v2":
             band_idx, expected_desc = 1, "Water_Probability"
@@ -111,16 +110,17 @@ def plot_spatial_confusion_matrix(gt_path, pred_path, s2_rgb, model_type="EDL", 
         actual_desc = src.descriptions[band_idx]
         if actual_desc != expected_desc:
             raise ValueError(f"Band description mismatch! Expected '{expected_desc}', got '{actual_desc}'")
-    pred_raster = pred_raster.load()
+    # 只讀水體機率波段；Rasterio 編號從 1 起算
+    pred_raster = RasterioReader(pred_path, indexes=[band_idx + 1]).load()
 
-    # 取得預測概率
-    pred_prob = pred_raster.values[band_idx]
+    # 載入後只有水體機率波段，索引為 0
+    pred_prob = pred_raster.values[0]
     
     # Binary classification
     pred_binary = (pred_prob > 0.5).astype(np.int32)  # 1=water, 0=non-water
     
-    # GT: convert to binary (2->1 water, 1->0 non-water)
-    gt_values = gt_raster.values[1]
+    # 載入後只有標籤波段，索引為 0；2->1 water, 1->0 non-water
+    gt_values = gt_raster.values[0]
     gt_binary = (gt_values == 2).astype(np.int32)
     
     # 建立混淆矩陣 2D map

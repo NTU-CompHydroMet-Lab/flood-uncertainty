@@ -124,7 +124,9 @@ for model in "${models[@]}"; do
     --model-type "$model"
     --subset "$ANALYSIS_SUBSET"
     --pred-root "$ANALYSIS_PRED_ROOT"
-    --analysis-root "$ANALYSIS_OUTPUT_ROOT"
+    --curve-subset "$ANALYSIS_SUBSET"
+    --curve-root "$ANALYSIS_OUTPUT_ROOT"
+    --output-dir "$ANALYSIS_OUTPUT_ROOT/$ANALYSIS_SUBSET"
     --patch-size "$ANALYSIS_PATCH_SIZE"
     --retention-target "$ANALYSIS_RETENTION_TARGET"
   )
