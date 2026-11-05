@@ -150,34 +150,113 @@ uv run python -m pytest -c pyproject.toml -q tests/test_optical_regression.py
 
 ### 7.1 單支執行
 
+執行 PAvPU 前，先將 `PAVPU_ACC_THRESHOLD` 設為預先決定的 patch Water IoU 門檻（0～1），
+所有模型使用相同數值。以下指令透過必填的 `--acc-threshold` 傳入該門檻。
+
 ```bash
 uv run python scripts/analysis/analysis_S2.py --model-type EDL --subset val --output-dir artifacts/results/analysis_S2/val --max-files 1
-uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset val --max-files 1
+uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset val --acc-threshold "$PAVPU_ACC_THRESHOLD" --max-files 1
 uv run python scripts/analysis/plot_retention_curve_compare.py --group all
 uv run python scripts/analysis/plot_epistemic_fp_fn_compare.py --subset val --max-files 1
 ```
 
-`compute_pavpu.py` 預設使用 **val curve 設定門檻、評估 test 影像**。
-`--curve-subset` 選擇門檻來源，`--subset` 選擇待評估影像；兩者可獨立指定：
+`compute_pavpu.py` 預設使用 **val curve 設定 uncertainty 門檻、評估 test 影像**（`--threshold-mode curve`）。
+準確度門檻獨立由 `--acc-threshold` 指定，不再採用 curve CSV 的 IoU。
+有效區域由預測 TIFF 的 Classification（排除 0）、來源 NoData 與有限值建立，不使用 GT；
+計分時再與混淆圖的有效條件取交集，每個區塊（預設 3×3）內任一像素無效就排除。
+`--threshold-mode per-image` 會對每個模型、事件及 uncertainty 類型，
+使用整張影像所有有效像素（包含邊界像素）的 uncertainty 計算一個 Q90。
+此模式不讀 retention CSV，也不使用 GT 選擇門檻；`--retention-target` 可調整分位數，預設 0.9。
+PAvPU 仍使用區塊平均 uncertainty 與此門檻比較，判定規則為 `mean_unc >= threshold`。
+像素與區塊的單位不同，加上相同值及評分範圍篩選，不保證最後恰有 10% 區塊判為不確定。
+
+```bash
+# 每個事件的有效像素 Q90 → test
+uv run python scripts/analysis/compute_pavpu.py \
+  --model-type EDL \
+  --subset test \
+  --threshold-mode per-image \
+  --retention-target 0.9 \
+  --acc-threshold "$PAVPU_ACC_THRESHOLD"
+```
+
+自適應結果另存至 `artifacts/results/analysis_S2/<subset>/<model>/pavpu_per_image_q90/pavpu_*.csv`；
+資料夾尾碼會隨分位數變更。每個事件記錄自己的 `unc_threshold`，`OVERALL`／`AVERAGE` 的門檻留空，
+並保留共同的 `acc_threshold` 與 `threshold_mode=per-image`；`curve_subset`／`curve_csv` 留空。
+
+兩種模式的 CSV 都記錄 `n_valid_patches`（`ac + au + ic + iu`，有效評分區塊數）與
+`uncertain_fraction`（`(au + iu) / n_valid_patches`，0～1）。這是套用評分範圍後的區塊統計，
+不是用來計算 Q90 的像素數。終端會逐事件顯示檔名、Q90／uncertainty 門檻、準確度門檻、
+有效評分區塊數、不確定比例（百分比）及 PAvPU。
+`OVERALL` 使用總計數計算比例；`AVERAGE` 記錄各事件區塊數及比例的算術平均。
+沒有有效評分區塊的事件，其不確定比例及 PAvPU 在 CSV 留空、終端顯示 `N/A`，
+且不納入這兩個比例欄位的事件平均。
+
+在 `curve` 模式中，
+`--curve-subset` 選擇 uncertainty 門檻來源，`--subset` 選擇待評估影像；兩者可獨立指定：
 
 ```bash
 # val curve → test（預設）
-uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset test --curve-subset val
+uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset test --curve-subset val --acc-threshold "$PAVPU_ACC_THRESHOLD"
 
 # test curve → test
-uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset test --curve-subset test
+uv run python scripts/analysis/compute_pavpu.py --model-type EDL --subset test --curve-subset test --acc-threshold "$PAVPU_ACC_THRESHOLD"
 ```
 
-預設從 `artifacts/results/analysis_S2/<curve-subset>/<model>/retention_*.csv` 讀取門檻，
+`curve` 模式從 `artifacts/results/analysis_S2/<curve-subset>/<model>/retention_*.csv` 讀取門檻，
 結果寫入 `artifacts/results/analysis_S2/<subset>/<model>/pavpu_from_<curve-subset>/pavpu_*.csv`。
-CSV 會記錄 curve 來源、門檻值、retention target 和 patch size。
-預設取最接近 90% retention 那列的 `threshold` 與 `iou`，分別作為不確定性與 patch IoU 門檻。
+CSV 會記錄 threshold mode、curve 來源、門檻值、retention target 和 patch size。
+預設取最接近 90% retention 那列的 `threshold` 作為不確定性門檻；patch IoU 門檻使用指定的固定值。
 
 如果 curve 位於其他目錄，用 `--curve-root` 指定**包含模型子目錄**的資料夾，
 並以 `--curve-subset` 正確標記該批 curve 的來源。`--output-dir` 可獨立指定輸出根目錄，
-程式會附加 `<model>/pavpu_from_<curve-subset>/`。
+程式會依模式附加 `<model>/pavpu_from_<curve-subset>/` 或 `<model>/pavpu_per_image_q<百分位>/`。
 舊的 `--analysis-root` 保留為 `--output-dir` 的別名，**不再用來選擇門檻 CSV**。
-批次與 smoke 腳本會明確指定使用該次執行產生的 curve。
+批次與 smoke 腳本會明確指定使用該次執行產生的 curve，並要求環境變數 `PAVPU_ACC_THRESHOLD`。
+批次腳本也可從 `scripts/analysis/analysis.env` 讀取此設定；未設定時會在分析開始前停止。
+
+完成 EDL、ensemble、mcdropout 的自適應 PAvPU 後，可匯出 Table 4（整體）與 Table 5（指定事件）：
+
+```bash
+uv run python CJ_scripts/export_pavpu_tables.py \
+  --subset test \
+  --threshold-mode per-image \
+  --retention-target 0.9 \
+  --event EMSR466_AOI01_DEL_PRODUCT
+```
+
+程式會讀取三個模型的 `pavpu_per_image_q90/pavpu_*.csv`，
+確認評估子集、模式、分位數、區塊大小及固定準確度門檻一致。
+每個事件的 `unc_threshold` 可不同；自適應結果不需要 `curve_subset`／`curve_csv`。
+輸出預設位於 `artifacts/results/figures/pavpu_tables/test_per_image_q90/`，包含
+`pavpu_tables.png`、`table4_pavpu_overall.csv` 與 `table5_pavpu_event.csv`。
+圖說會標示每個事件的有效像素分位數、區塊大小及固定準確度門檻。
+表格程式預設仍為 `--threshold-mode curve --curve-subset val`，可讀取既有曲線門檻結果；
+此舊模式不強制不同模型共用準確度門檻，以保留先前結果的讀取方式。
+
+自適應 PAvPU 的小型驗證使用合成 TIFF 與手算結果，涵蓋整張影像 Q90、有效範圍、
+四格計數、GT 變動不影響門檻，以及 CSV 的整體／逐事件平均：
+
+```bash
+uv run python -m pytest -c pyproject.toml -q tests/test_pavpu_adaptive.py
+```
+
+測試中的 `acc_threshold=0.5` 僅為合成案例設定，不是正式實驗的建議值。
+測試通過後，可使用預先選定的 `PAVPU_ACC_THRESHOLD`，先評估 val 按檔名排序的第一張影像：
+
+```bash
+uv run python scripts/analysis/compute_pavpu.py \
+  --model-type EDL \
+  --subset val \
+  --threshold-mode per-image \
+  --retention-target 0.9 \
+  --acc-threshold "$PAVPU_ACC_THRESHOLD" \
+  --max-files 1 \
+  --output-dir artifacts/results/analysis_S2_validation/val
+```
+
+單張驗證結果位於 `artifacts/results/analysis_S2_validation/val/EDL/pavpu_per_image_q90/`。
+檢查四種 uncertainty 的事件門檻、有效評分區塊數、不確定比例及 PAvPU，再進行完整評估。
 
 ### 7.2 一鍵執行全部 analysis（含時間與步驟提示）
 

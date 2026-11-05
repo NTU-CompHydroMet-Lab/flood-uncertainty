@@ -21,6 +21,7 @@ RETENTION_TARGET="${SMOKE_ANALYSIS_RETENTION_TARGET:-0.9}"
 PATCH_SIZE="${SMOKE_ANALYSIS_PATCH_SIZE:-3}"
 PREPARE_INFER="${SMOKE_ANALYSIS_PREPARE_INFER:-1}"
 RUN_CROSS_MODEL_PLOTS="${SMOKE_ANALYSIS_RUN_CROSS_MODEL_PLOTS:-0}"
+: "${PAVPU_ACC_THRESHOLD:?Set PAVPU_ACC_THRESHOLD to a preselected patch Water IoU threshold in [0, 1]}"
 
 if [[ "$PREPARE_INFER" == "1" && "$MODEL_TYPE" == "EDL" ]]; then
   INFER_CONFIG="${SMOKE_ANALYSIS_INFER_CONFIG:-configurations/edl.json}"
@@ -65,6 +66,8 @@ uv run python scripts/analysis/analysis_S2.py \
 echo "Running compute_pavpu (model=$MODEL_TYPE)"
 uv run python scripts/analysis/compute_pavpu.py \
   --model-type "$MODEL_TYPE" \
+  --threshold-mode curve \
+  --acc-threshold "$PAVPU_ACC_THRESHOLD" \
   --subset "$SUBSET" \
   --pred-root "$PRED_ROOT" \
   --curve-subset "$SUBSET" \

@@ -29,6 +29,7 @@ ANALYSIS_PATCH_SIZE="${ANALYSIS_PATCH_SIZE:-3}"
 ANALYSIS_RETENTION_GROUP="${ANALYSIS_RETENTION_GROUP:-all}"
 ANALYSIS_RUN_RETENTION_PLOT="${ANALYSIS_RUN_RETENTION_PLOT:-1}"
 ANALYSIS_RUN_EPI_FP_FN_PLOT="${ANALYSIS_RUN_EPI_FP_FN_PLOT:-1}"
+: "${PAVPU_ACC_THRESHOLD:?Set PAVPU_ACC_THRESHOLD to a preselected patch Water IoU threshold in [0, 1]}"
 
 ANALYSIS_DATA_ROOT="${ANALYSIS_DATA_ROOT:-$PROJECT_ROOT/data/worldfloods_v2/data}"
 ANALYSIS_PRED_ROOT="${ANALYSIS_PRED_ROOT:-$PROJECT_ROOT/artifacts/results/val_test_inference}"
@@ -122,6 +123,8 @@ for model in "${models[@]}"; do
   pavpu_args=(
     scripts/analysis/compute_pavpu.py
     --model-type "$model"
+    --threshold-mode curve
+    --acc-threshold "$PAVPU_ACC_THRESHOLD"
     --subset "$ANALYSIS_SUBSET"
     --pred-root "$ANALYSIS_PRED_ROOT"
     --curve-subset "$ANALYSIS_SUBSET"

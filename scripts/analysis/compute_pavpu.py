@@ -86,6 +86,7 @@ SELECTED_CRITERIA["EDL-TERRAMIND"] = SELECTED_CRITERIA["EDL"]
 CONFIG = {
     "model_type":      "EDL",   # ← 切換此處："EDL" "ensemble" 或 "mcdropout"
     "subset":          "test",
+    "threshold_mode":  "curve",
     "curve_subset":    "val",
     "pred_root":       str(DEFAULT_PRED_ROOT),
     "base_output_dir": str(DEFAULT_ANALYSIS_ROOT),
@@ -103,35 +104,94 @@ def parse_args():
     parser.add_argument("--subset", choices=["val", "test"], default=CONFIG["subset"],
                         help="Image subset to evaluate. Default: test.")
     parser.add_argument("--pred-root", default=CONFIG["pred_root"])
+    parser.add_argument("--threshold-mode", choices=["curve", "per-image"],
+                        default=CONFIG["threshold_mode"],
+                        help="Uncertainty threshold source. Default: curve. "
+                             "per-image uses all valid pixels in each event to compute its quantile.")
+    parser.add_argument("--acc-threshold", type=float, required=True,
+                        help="Fixed patch Water IoU threshold in [0, 1]. "
+                             "Choose in advance and use the same value across models.")
     parser.add_argument("--curve-subset", choices=["val", "test"], default=CONFIG["curve_subset"],
-                        help="Subset used to select retention-curve thresholds. Default: val.")
+                        help="Subset used to select thresholds in curve mode only. Default: val.")
     parser.add_argument("--curve-root", type=Path,
-                        help="Override the curve folder containing model subfolders. "
+                        help="Override the curve folder containing model subfolders (curve mode only). "
                              "Default: artifacts/results/analysis_S2/<curve-subset>.")
     parser.add_argument("--output-dir", "--analysis-root", dest="output_dir", type=Path,
-                        help="Output root; <model>/pavpu_from_<curve-subset> is appended. "
+                        help="Output root; <model>/pavpu_from_<curve-subset> or "
+                             "<model>/pavpu_per_image_q<percentile> is appended. "
                              "Default: artifacts/results/analysis_S2/<subset>. "
                              "--analysis-root is an alias for output only.")
     parser.add_argument("--patch-size", type=int, default=CONFIG["patch_size"])
-    parser.add_argument("--retention-target", type=float, default=CONFIG["retention_target"])
+    parser.add_argument("--retention-target", type=float, default=CONFIG["retention_target"],
+                        help="Retention rate / adaptive uncertainty quantile in (0, 1]. Default: 0.9.")
     parser.add_argument("--max-files", type=int, default=CONFIG["max_files"])
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not 0 <= args.acc_threshold <= 1:
+        parser.error("--acc-threshold must be between 0 and 1.")
+    if not 0 < args.retention_target <= 1:
+        parser.error("--retention-target must be in (0, 1].")
+    if args.patch_size <= 0:
+        parser.error("--patch-size must be positive.")
+    return args
 
 
-def get_thresholds(model_type, criteria_name, base_output_dir, retention_target):
+def get_thresholds(model_type, criteria_name, base_output_dir, retention_target, *, acc_threshold=None):
     """
     從 retention curve CSV 讀取最接近 retention_target 的那一行，
     回傳 (unc_threshold, acc_threshold)。
-    acc_threshold 使用 iou 欄位。
+    主程式明確傳入固定 acc_threshold，不使用 CSV 的 iou 欄位。
+    未傳入時保留舊行為，供尚未遷移的 export_case_compare_tiles.py 使用。
     """
     csv_path = os.path.join(base_output_dir, model_type, f"retention_{criteria_name}.csv")
     df = pd.read_csv(csv_path)
     idx = (df["retention_rate"] - retention_target).abs().argmin()
     row = df.iloc[idx]
-    return float(row["threshold"]), float(row["iou"])
+    if acc_threshold is None:
+        acc_threshold = float(row["iou"])
+    return float(row["threshold"]), acc_threshold
 
 
-def compute_pavpu_for_image(cm_map, unc_map, patch_size, acc_threshold, unc_threshold):
+def _read_valid_band(src, band_index):
+    """讀取單一波段，排除來源 NoData 與非有限值；0 仍是有效數值。"""
+    band = src.read(band_index, out_dtype="float32", masked=True)
+    valid = ~np.ma.getmaskarray(band) & np.isfinite(band.data)
+    return band.data, valid
+
+
+def read_uncertainty_with_valid_mask(pred_path, criteria_config):
+    """只使用預測 TIFF，建立不依賴 GT／混淆圖的 uncertainty 有效範圍。"""
+    band_indices = criteria_config.get("band_indices") or [criteria_config["band_index"]]
+
+    with rasterio.open(pred_path) as src:
+        if not (src.descriptions[0] or "").startswith("Classification"):
+            raise ValueError(f"Expected Classification in band 1: {pred_path}")
+
+        classification, valid_pixels = _read_valid_band(src, 1)
+        valid_pixels &= classification != 0
+        del classification
+
+        # 每個來源波段先檢查有效性，避免 A+E 的 NoData 相加後失去原始標記。
+        unc_map, valid_band = _read_valid_band(src, band_indices[0] + 1)
+        valid_pixels &= valid_band
+        for band_index in band_indices[1:]:
+            extra_unc, valid_band = _read_valid_band(src, band_index + 1)
+            valid_pixels &= valid_band
+            unc_map += extra_unc
+
+    valid_pixels &= np.isfinite(unc_map)
+    return unc_map, valid_pixels
+
+
+def compute_image_uncertainty_threshold(unc_map, valid_pixels, quantile):
+    """由整個事件的有效像素取分位數，包含邊界像素，不使用 GT 或區塊平均值。"""
+    values = unc_map[valid_pixels]
+    if values.size == 0:
+        return None
+    # 布林索引已產生獨立陣列，可原地 partition，避免再複製整張有效區域。
+    return float(np.quantile(values, quantile, overwrite_input=True))
+
+
+def compute_pavpu_for_image(cm_map, unc_map, patch_size, acc_threshold, unc_threshold, *, valid_pixels=None):
     """
     以 numpy 向量化計算單張影像的 PAvPU。
 
@@ -141,10 +201,14 @@ def compute_pavpu_for_image(cm_map, unc_map, patch_size, acc_threshold, unc_thre
         patch_size:    patch 邊長 (P)
         acc_threshold: IoU 準確度閾值
         unc_threshold: 不確定性閾值
+        valid_pixels:  不依賴 GT 的有效像素範圍；另與混淆圖的評分條件取交集
 
     Returns:
         n_ac, n_au, n_ic, n_iu, pavpu
     """
+    if valid_pixels is not None and valid_pixels.shape != cm_map.shape:
+        raise ValueError("Prediction valid mask and confusion map must have the same shape.")
+
     P = patch_size
     H, W = cm_map.shape
 
@@ -163,6 +227,9 @@ def compute_pavpu_for_image(cm_map, unc_map, patch_size, acc_threshold, unc_thre
 
     # 含任意 invalid pixel 的 patch → 捨棄
     valid = ~np.any(cm_patches == 0, axis=(2, 3))
+    if valid_pixels is not None:
+        input_valid_patches = valid_pixels[:H_trim, :W_trim].reshape(n_h, P, n_w, P)
+        valid &= np.all(input_valid_patches, axis=(1, 3))
 
     TP = np.sum(cm_patches == 4, axis=(2, 3)).astype(np.float32)
     FP = np.sum(cm_patches == 2, axis=(2, 3)).astype(np.float32)
@@ -206,10 +273,11 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
     subset     = config["subset"]
     pred_root  = config["pred_root"]
     patch_size = config["patch_size"]
+    threshold_mode = config["threshold_mode"]
+    quantile = config["retention_target"]
+    threshold_label = f"Q{quantile * 100:g}" if threshold_mode == "per-image" else "unc_threshold"
 
     crit_config = CRITERIA_MENU[model_type][criteria_name]
-    band_idx = crit_config.get("band_index")
-    band_indices = crit_config.get("band_indices")
     target_dir = f"{pred_root}/{subset}/{model_type}"
 
     cm_files = sorted(glob(f"{target_dir}/cm_*.tif"))
@@ -238,23 +306,38 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
             else:
                 continue
 
+        unc_map, valid_pixels = read_uncertainty_with_valid_mask(pred_path, crit_config)
+        image_unc_threshold = unc_threshold
+        if threshold_mode == "per-image":
+            image_unc_threshold = compute_image_uncertainty_threshold(unc_map, valid_pixels, quantile)
+            if image_unc_threshold is None:
+                tqdm.write(f"[SKIP] No valid uncertainty pixels: {pred_path}")
+                del unc_map, valid_pixels
+                continue
+
+        # 自適應門檻已經確定，GT／混淆圖僅參與後續評分。
         with rasterio.open(cm_path) as src:
             cm_map = src.read(1)
-        with rasterio.open(pred_path) as src:
-            if band_indices is not None:
-                unc_map = src.read(band_indices[0] + 1).astype(np.float32)
-                for extra_band_idx in band_indices[1:]:
-                    unc_map = unc_map + src.read(extra_band_idx + 1).astype(np.float32)
-            else:
-                unc_map = src.read(band_idx + 1).astype(np.float32)  # rasterio 用 1-based index
 
         n_ac, n_au, n_ic, n_iu, pavpu = compute_pavpu_for_image(
-            cm_map, unc_map, patch_size, acc_threshold, unc_threshold
+            cm_map, unc_map, patch_size, acc_threshold, image_unc_threshold,
+            valid_pixels=valid_pixels,
         )
+        del cm_map, unc_map, valid_pixels
 
         # 取原始影像名稱（去掉 _output_{model_type} 後綴）
         suffix = "_mcdropout_output_ensemble" if model_type == "mcdropout" else f"_output_{model_type}"
         image_name = original_filename_part.replace(suffix, "")
+
+        n_valid_patches = n_ac + n_au + n_ic + n_iu
+        uncertain_fraction = (n_au + n_iu) / n_valid_patches if n_valid_patches > 0 else np.nan
+        uncertain_text = f"{uncertain_fraction:.2%}" if n_valid_patches > 0 else "N/A"
+        pavpu_text = f"{pavpu:.6f}" if n_valid_patches > 0 else "N/A"
+        tqdm.write(
+            f"  {image_name}\n"
+            f"    {threshold_label}={image_unc_threshold:.9g} | acc_threshold={acc_threshold:.9g} | "
+            f"valid_eval_patches={n_valid_patches} | uncertain={uncertain_text} | PAvPU={pavpu_text}"
+        )
 
         per_image_rows.append({
             "filename": image_name,
@@ -263,7 +346,10 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
             "n_au":     n_au,
             "n_ic":     n_ic,
             "n_iu":     n_iu,
+            "n_valid_patches": n_valid_patches,
+            "uncertain_fraction": uncertain_fraction,
             "pavpu":    pavpu,
+            "unc_threshold": image_unc_threshold,
         })
 
         totals["n_ac"] += n_ac
@@ -287,6 +373,7 @@ def save_results(per_image_rows, totals, subset, output_path, metadata):
     n_iu_tot = totals["n_iu"]
     total_tot = n_ac_tot + n_au_tot + n_ic_tot + n_iu_tot
     pavpu_overall = (n_ac_tot + n_iu_tot) / total_tot if total_tot > 0 else np.nan
+    uncertain_fraction_overall = (n_au_tot + n_iu_tot) / total_tot if total_tot > 0 else np.nan
 
     overall_row = pd.DataFrame([{
         "filename": "OVERALL",
@@ -295,6 +382,8 @@ def save_results(per_image_rows, totals, subset, output_path, metadata):
         "n_au":     n_au_tot,
         "n_ic":     n_ic_tot,
         "n_iu":     n_iu_tot,
+        "n_valid_patches": total_tot,
+        "uncertain_fraction": uncertain_fraction_overall,
         "pavpu":    pavpu_overall,
     }])
 
@@ -305,6 +394,8 @@ def save_results(per_image_rows, totals, subset, output_path, metadata):
         "n_au":     df["n_au"].mean(),
         "n_ic":     df["n_ic"].mean(),
         "n_iu":     df["n_iu"].mean(),
+        "n_valid_patches": df["n_valid_patches"].mean(),
+        "uncertain_fraction": df["uncertain_fraction"].mean(),
         "pavpu":    df["pavpu"].mean(),
     }])
 
@@ -320,6 +411,8 @@ def main():
     config = dict(CONFIG)
     config["model_type"] = args.model_type
     config["subset"] = args.subset
+    config["threshold_mode"] = args.threshold_mode
+    config["acc_threshold"] = args.acc_threshold
     config["curve_subset"] = args.curve_subset
     config["pred_root"] = args.pred_root
     config["patch_size"] = args.patch_size
@@ -328,21 +421,31 @@ def main():
 
     model_type = config["model_type"]
     subset = config["subset"]
+    threshold_mode = config["threshold_mode"]
     analysis_root = Path(config["base_output_dir"])
     curve_subset = config["curve_subset"]
     curve_root = (args.curve_root or analysis_root / curve_subset).resolve()
     output_root = (args.output_dir or analysis_root / subset).resolve()
     retention_target = config["retention_target"]
 
-    # 先讀取所有門檻，確認 curve CSV 齊全後再開始計算大影像。
-    thresholds = {
-        name: get_thresholds(model_type, name, curve_root, retention_target)
-        for name in SELECTED_CRITERIA[model_type]
-    }
-    output_dir = output_root / model_type / f"pavpu_from_{curve_subset}"
+    thresholds = {}
+    output_folder = f"pavpu_per_image_q{retention_target * 100:g}"
+    if threshold_mode == "curve":
+        # 僅 curve 模式讀 CSV，並在計算大影像前確認來源齊全。
+        thresholds = {
+            name: get_thresholds(model_type, name, curve_root, retention_target,
+                                 acc_threshold=config["acc_threshold"])
+            for name in SELECTED_CRITERIA[model_type]
+        }
+        output_folder = f"pavpu_from_{curve_subset}"
+    output_dir = output_root / model_type / output_folder
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Evaluation subset: {subset}")
-    print(f"Curve subset: {curve_subset}, curve root: {curve_root}")
+    print(f"Threshold mode: {threshold_mode}")
+    if threshold_mode == "curve":
+        print(f"Curve subset: {curve_subset}, curve root: {curve_root}")
+    else:
+        print(f"Threshold source: each event's valid pixels, Q{retention_target * 100:g}")
     print(f"Output directory: {output_dir}")
 
     for criteria_name in SELECTED_CRITERIA[model_type]:
@@ -350,12 +453,14 @@ def main():
         print(f"Criteria: {criteria_name}  |  Model: {model_type}")
         print(f"{'='*50}")
 
-        curve_csv = curve_root / model_type / f"retention_{criteria_name}.csv"
-        unc_threshold, acc_threshold = thresholds[criteria_name]
-        print(f"  curve_csv        : {curve_csv}")
+        curve_csv = ""
+        unc_threshold, acc_threshold = thresholds.get(criteria_name, (None, config["acc_threshold"]))
+        if threshold_mode == "curve":
+            curve_csv = str(curve_root / model_type / f"retention_{criteria_name}.csv")
+            print(f"  curve_csv        : {curve_csv}")
+            print(f"  unc_threshold    : {unc_threshold:.6f}")
         print(f"  retention_target : {retention_target}")
-        print(f"  unc_threshold    : {unc_threshold:.6f}")
-        print(f"  acc_threshold    : {acc_threshold:.6f}  (IoU)")
+        print(f"  acc_threshold    : {acc_threshold:.6f}  (fixed patch Water IoU)")
         print(f"  patch_size       : {config['patch_size']}x{config['patch_size']}")
 
         per_image_rows, totals = process_all_images(
@@ -368,13 +473,15 @@ def main():
 
         output_path = output_dir / f"pavpu_{criteria_name}.csv"
         metadata = {
-            "curve_subset": curve_subset,
-            "curve_csv": str(curve_csv),
+            "threshold_mode": threshold_mode,
+            "curve_subset": curve_subset if threshold_mode == "curve" else "",
+            "curve_csv": curve_csv,
             "retention_target": retention_target,
-            "unc_threshold": unc_threshold,
             "acc_threshold": acc_threshold,
             "patch_size": config["patch_size"],
         }
+        if threshold_mode == "curve":
+            metadata["unc_threshold"] = unc_threshold
         save_results(per_image_rows, totals, subset, output_path, metadata)
 
 

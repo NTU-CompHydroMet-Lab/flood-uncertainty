@@ -27,7 +27,12 @@ CRITERIA = [
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--subset", choices=["val", "test"], default="test")
-    parser.add_argument("--curve-subset", choices=["val", "test"], default="val")
+    parser.add_argument("--threshold-mode", choices=["curve", "per-image"], default="curve",
+                        help="PAvPU result mode to read. Default: curve.")
+    parser.add_argument("--retention-target", type=float, default=0.9,
+                        help="Per-image uncertainty quantile used to select results. Default: 0.9.")
+    parser.add_argument("--curve-subset", choices=["val", "test"], default="val",
+                        help="Threshold curve source, used only in curve mode.")
     parser.add_argument("--event", default="EMSR466_AOI01_DEL_PRODUCT")
     parser.add_argument("--analysis-root", type=Path,
                         default=PROJECT_ROOT / "artifacts/results/analysis_S2")
@@ -36,21 +41,35 @@ def parse_args():
     args = parser.parse_args()
     if args.event in {"OVERALL", "AVERAGE"}:
         parser.error("--event must be an event filename, not OVERALL or AVERAGE.")
+    if not 0 < args.retention_target <= 1:
+        parser.error("--retention-target must be in (0, 1].")
     return args
+
+
+def result_suffix(args):
+    if args.threshold_mode == "per-image":
+        return f"per_image_q{args.retention_target * 100:g}"
+    return f"from_{args.curve_subset}"
 
 
 def read_scores(path, args):
     if not path.is_file():
         raise FileNotFoundError(
             f"Missing PAvPU CSV: {path}\n"
-            "Complete compute_pavpu.py for this model and curve source before exporting."
+            "Complete compute_pavpu.py for this model and threshold mode before exporting."
         )
     data = pd.read_csv(path)
-    missing = {"filename", "pavpu"} - set(data.columns)
+    required = {"filename", "pavpu"}
+    if args.threshold_mode == "per-image":
+        required.update({"subset", "threshold_mode", "retention_target", "patch_size", "acc_threshold"})
+    missing = required - set(data.columns)
     if missing:
         raise ValueError(f"Missing columns {sorted(missing)} in {path}")
 
-    for column, expected in (("subset", args.subset), ("curve_subset", args.curve_subset)):
+    expected_metadata = {"subset": args.subset, "threshold_mode": args.threshold_mode}
+    if args.threshold_mode == "curve":
+        expected_metadata["curve_subset"] = args.curve_subset
+    for column, expected in expected_metadata.items():
         if column in data and not data[column].eq(expected).all():
             raise ValueError(f"Expected {column}={expected} in {path}")
 
@@ -62,12 +81,24 @@ def read_scores(path, args):
         raise ValueError(f"PAvPU values must be finite and within [0, 1]: {path}")
 
     protocol = []
-    for column in ("retention_target", "patch_size"):
+    protocol_columns = ["retention_target", "patch_size"]
+    if args.threshold_mode == "per-image":
+        protocol_columns.append("acc_threshold")
+    for column in protocol_columns:
         if column not in data:
             continue
-        if data[column].nunique(dropna=False) != 1:
+        if data[column].isna().any() or data[column].nunique(dropna=False) != 1:
             raise ValueError(f"Inconsistent {column} in {path}")
         protocol.append((column, data[column].iloc[0]))
+
+    if args.threshold_mode == "per-image":
+        if not data["retention_target"].eq(args.retention_target).all():
+            raise ValueError(f"Expected retention_target={args.retention_target} in {path}")
+        if not data["acc_threshold"].between(0, 1).all():
+            raise ValueError(f"Expected acc_threshold in [0, 1] in {path}")
+        patch_size = float(data["patch_size"].iloc[0])
+        if not (patch_size > 0 and patch_size.is_integer()):
+            raise ValueError(f"Expected a positive integer patch_size in {path}")
     return scores["OVERALL"], scores[args.event], tuple(protocol)
 
 
@@ -75,7 +106,7 @@ def build_tables(args):
     overall_rows, event_rows = [], []
     protocols = set()
     for model, (inference_type, method) in MODELS.items():
-        model_dir = args.analysis_root / args.subset / model / f"pavpu_from_{args.curve_subset}"
+        model_dir = args.analysis_root / args.subset / model / f"pavpu_{result_suffix(args)}"
         event_row = {"Model": method}
         event_row.update({f"PAvPU ({label})": float("nan") for _, label in CRITERIA})
         criteria = CRITERIA if model == "EDL" else CRITERIA[1:]
@@ -93,8 +124,9 @@ def build_tables(args):
         event_rows.append(event_row)
 
     if len(protocols) != 1:
-        raise ValueError("Input CSVs use different retention targets or patch sizes/metadata.")
-    return pd.DataFrame(overall_rows), pd.DataFrame(event_rows)
+        raise ValueError("Input CSVs use different evaluation settings "
+                         "(retention target, patch size, or fixed accuracy threshold in per-image mode).")
+    return pd.DataFrame(overall_rows), pd.DataFrame(event_rows), dict(protocols.pop())
 
 
 def draw_table(ax, data, title, widths, bbox, numeric_start):
@@ -124,12 +156,20 @@ def draw_table(ax, data, title, widths, bbox, numeric_start):
 
 def main():
     args = parse_args()
-    overall, event = build_tables(args)
+    overall, event, protocol = build_tables(args)
     output_dir = args.output_dir or (
         PROJECT_ROOT / "artifacts/results/figures/pavpu_tables"
-        / f"{args.subset}_from_{args.curve_subset}"
+        / f"{args.subset}_{result_suffix(args)}"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    threshold_caption = f"Threshold curves: {args.curve_subset}"
+    if args.threshold_mode == "per-image":
+        patch_size = int(protocol["patch_size"])
+        threshold_caption = (
+            f"Threshold: Q{args.retention_target * 100:g} of valid pixels per event | "
+            f"Patch: {patch_size}x{patch_size} | Accuracy: Water IoU >= {protocol['acc_threshold']:g}"
+        )
 
     with plt.rc_context({"font.family": "serif", "font.serif": ["DejaVu Serif"]}):
         fig, axes = plt.subplots(2, 1, figsize=(15.5, 9),
@@ -147,7 +187,7 @@ def main():
         )
         fig.subplots_adjust(left=0.02, right=0.98, top=0.97, bottom=0.07, hspace=0.20)
         fig.text(0.02, 0.02,
-                 f"Evaluation: {args.subset} | Threshold curves: {args.curve_subset}",
+                 f"Evaluation: {args.subset} | {threshold_caption}",
                  fontsize=10, color="0.35")
         png_path = output_dir / "pavpu_tables.png"
         fig.savefig(png_path, dpi=300, bbox_inches="tight", facecolor="white")
