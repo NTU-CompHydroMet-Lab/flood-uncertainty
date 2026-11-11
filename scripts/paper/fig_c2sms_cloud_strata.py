@@ -2,7 +2,7 @@
 
 Input: <results>/c2sms_all/groups.csv and groups_pairs.csv from eval_sen1_fusion_compare.py --groups-csv (groups = chip
 cloud + shadow fraction bins, artifacts/results/c2sms/cloud_groups.csv). (a) pooled flood-class IoU per stratum and
-model; (b) paired difference fused - joint multimodal TerraMind with the 95% bootstrap interval over chips.
+model; (b) paired difference fused - joint multimodal TerraMind with the 95% bootstrap interval over chips (shaded).
 Writes <out>/fig_c2sms_cloud_strata.{pdf,png,csv}.
 Usage: python fig_c2sms_cloud_strata.py --results artifacts/results --out <dir>
 """
@@ -54,16 +54,16 @@ ax1.set_title("(a) Flood-class IoU", loc="left")
 ax2.axhline(0, color="#7a7a74", lw=0.8, zorder=1)
 for e, lab, c, m, off in DIFFS:
     d = pr[(pr.row == e) & (pr.col == "multimodal")].set_index("group").reindex(GROUPS)
-    ax2.errorbar(x + off, d["diff"], yerr=[d["diff"] - d.ci_low, d.ci_high - d["diff"]], fmt=m, color=c,
-                 ms=4, mec="white", mew=0.6, elinewidth=1.0, capsize=2, label=lab, zorder=3)
+    ax2.fill_between(x, d.ci_low, d.ci_high, color=c, alpha=0.15, lw=0, zorder=1)
+    ax2.plot(x, d["diff"], color=c, marker=m, lw=1.4, ms=4, mec="white", mew=0.6, label=lab, zorder=3)
     rows += [dict(panel="b", entry=e, group=gr, value=v, ci_low=lo, ci_high=hi)
              for gr, v, lo, hi in zip(GROUPS, d["diff"], d.ci_low, d.ci_high)]
 ax2.set_ylabel("$\\Delta$IoU vs. joint")
 ax2.set_title("(b) Difference to the joint model (95% CI)", loc="left")
-ax2.legend(loc="upper left", fontsize=6.5, handlelength=1.2, borderaxespad=0.3, ncol=2)
+ax2.legend(loc="upper left", fontsize=6.5, handlelength=2.0, borderaxespad=0.3, ncol=2)
 ax2.set_xticks(x, [f"{gr.replace('-', '–')}\n($n$={k})" for gr, k in zip(GROUPS, n)])
 ax2.set_xlabel("Chip cloud-and-shadow fraction")
-ax2.set_xlim(-0.4, len(GROUPS) - 0.6)
+ax2.set_xlim(-0.25, len(GROUPS) - 0.75)
 
 fig.subplots_adjust(top=0.84)
 a.out.mkdir(parents=True, exist_ok=True)
