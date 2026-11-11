@@ -5,7 +5,7 @@ cloud + shadow fraction bins, artifacts/results/c2sms/cloud_groups.csv).
   --panels a  (default, main text): pooled flood-class IoU per stratum and model.
   --panels ab (appendix): adds (b), the paired difference fused - joint multimodal TerraMind with the 95% bootstrap
               interval over chips as a shaded band.
-Only the two DEUF configurations and the joint model are drawn (one message per figure, no dodging).
+Panel (a) is a grouped bar chart (zero baseline, value labels) of the two DEUF configurations and the joint model.
 Writes <out>/<name>.{pdf,png,csv}; name = fig_c2sms_cloud_strata (a) or fig_c2sms_cloud_strata_ci (ab).
 Usage: python fig_c2sms_cloud_strata.py --results artifacts/results --out <dir> [--panels ab]
 """
@@ -49,19 +49,24 @@ else:
     ax2 = None
 
 rows = []
-for e, lab, c, m, lw in LINES:
+BAR_ORDER = ["multimodal", "unet_deuf/fused", "bef/fused"]  # left to right within a stratum
+width = 0.26
+for k, e in enumerate(BAR_ORDER):
+    lab, c = next((l_, c_) for e_, l_, c_, *_ in LINES if e_ == e)
     y = g[g.entry == e].set_index("group").water_iou.reindex(GROUPS).to_numpy()
-    if e == "unet_deuf/fused":  # hollow and larger, so a coinciding TerraMind-DEUF point stays visible inside it
-        kw = dict(ms=6.5, mfc="white", mec=c, mew=1.1)
-    else:
-        kw = dict(ms=4.0 if e == "bef/fused" else 4.5, mec="white", mew=0.6)
-    ax1.plot(x, y, color=c, marker=m, lw=lw, label=lab, zorder=4 if e == "bef/fused" else 2, **kw)
+    xb = x + (k - 1) * width
+    ax1.bar(xb, y, width=width, color=c, edgecolor="white", linewidth=0.6, label=lab, zorder=2)
+    for xi, yi in zip(xb, y):  # value label inside the bar top
+        ax1.text(xi, yi - 0.015, f"{yi:.3f}", rotation=90, ha="center", va="top", fontsize=6,
+                 color="white", zorder=3)
     rows += [dict(panel="a", entry=e, group=gr, value=v) for gr, v in zip(GROUPS, y)]
 ax1.set_ylabel("Flood-class IoU")
-ax1.set_ylim(0.7, 1.0)
-ax1.set_xlim(-0.25, len(GROUPS) - 0.75)
+ax1.set_ylim(0, 1.0)
+ax1.set_xlim(-0.5, len(GROUPS) - 0.5)
+ax1.grid(axis="x", visible=False)
 hd, lb = ax1.get_legend_handles_labels()
-ax1.legend(hd[::-1], lb[::-1], loc="lower left", fontsize=6.5, handlelength=2.2, borderaxespad=0.4)
+fig.legend(hd, lb, loc="upper center", ncol=3, fontsize=6.5, handlelength=1.2,
+           columnspacing=0.8, bbox_to_anchor=(0.55, 1.0))
 
 if ax2 is not None:
     ax1.set_title("(a) Flood-class IoU", loc="left")
@@ -77,12 +82,12 @@ if ax2 is not None:
     ax2.legend(loc="upper left", fontsize=6.5, handlelength=2.0, borderaxespad=0.3, ncol=2)
     ax2.set_xticks(x, xlabels)
     ax2.set_xlabel("Chip cloud-and-shadow fraction")
-    fig.subplots_adjust(top=0.95)
+    fig.subplots_adjust(top=0.91)
     name = "fig_c2sms_cloud_strata_ci"
 else:
     ax1.set_xticks(x, xlabels)
     ax1.set_xlabel("Chip cloud-and-shadow fraction")
-    fig.subplots_adjust(top=0.97, bottom=0.24, left=0.15, right=0.97)
+    fig.subplots_adjust(top=0.90, bottom=0.24, left=0.15, right=0.98)
     name = "fig_c2sms_cloud_strata"
 
 a.out.mkdir(parents=True, exist_ok=True)
