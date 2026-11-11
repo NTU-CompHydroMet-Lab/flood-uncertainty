@@ -1,4 +1,4 @@
-"""Shared matplotlib style for the IEEE TGRS figures (single column 3.5 in, double column 7.16 in, 8 pt serif)."""
+"""Shared matplotlib style for the IEEE TGRS figures (single column 3.5 in, double column 7.16 in, 8 pt serif for all figure text)."""
 import matplotlib as mpl
 
 COL1 = 3.5    # single column width, inch
@@ -29,9 +29,9 @@ def apply():
         "font.size": 8,
         "axes.labelsize": 8,
         "axes.titlesize": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
-        "legend.fontsize": 7,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "legend.fontsize": 8,
         "axes.linewidth": 0.6,
         "xtick.major.width": 0.6,
         "ytick.major.width": 0.6,

@@ -27,8 +27,8 @@ p.add_argument("--labels", nargs="+", default=None, help="row labels, e.g. (a) (
 p.add_argument("--umax", type=float, default=0.2)
 a = p.parse_args()
 
-MODELS = [("multimodal", "Joint TerraMind"), ("bef/optical", "TerraMind-EDL-S2"),
-          ("bef/sar", "TerraMind-EDL-S1"), ("bef/fused", "TerraMind-DEUF")]
+MODELS = [("multimodal", "Joint\nTerraMind"), ("bef/optical", "TerraMind-\nEDL-S2"),
+          ("bef/sar", "TerraMind-\nEDL-S1"), ("bef/fused", "TerraMind-\nDEUF")]  # two lines: 8 pt titles
 # confusion encoding of the maps: 0 not scored, 1 TN, 2 FP, 3 FN, 4 TP (palette validated with the dataviz script)
 CM = ListedColormap(["#ffffff", "#e6e6e1", "#d6452f", "#c98a0b", "#2f6db5"])
 REF = ListedColormap(["#ffffff", "#e6e6e1", "#2f6db5"])
@@ -51,7 +51,7 @@ style.apply()
 ncol = 3 + len(MODELS) + 1
 n = len(a.ids)
 fig, axes = plt.subplots(n, ncol, figsize=(style.COL2, 0.93 * n + 0.62), squeeze=False)
-titles = ["S2 (RGB)", "S1 VH", "Reference"] + [m[1] for m in MODELS] + ["DEUF $u$"]
+titles = ["S2\n(RGB)", "S1\nVH", "Reference\n"] + [m[1] for m in MODELS] + ["DEUF\n$u$"]
 for i, sid in enumerate(a.ids):
     z = np.load(a.maps / f"{sid}.npz")
     ent, ev_ent = list(z["entries"]), list(z["evidence_entries"])
@@ -70,7 +70,7 @@ for i, sid in enumerate(a.ids):
         row[3 + j].imshow(cm, cmap=CM, vmin=0, vmax=4, interpolation="nearest")
         tp, fp, fn = ((cm == k).sum() for k in (4, 2, 3))
         row[3 + j].text(0.5, -0.04, f"IoU {tp / max(tp + fp + fn, 1):.3f}", transform=row[3 + j].transAxes,
-                        ha="center", va="top", fontsize=6.5)
+                        ha="center", va="top", fontsize=8)
     ev = z["evidence"][ev_ent.index("bef/fused")].astype(np.float32)
     u = 2.0 / (ev[0] + ev[1] + 2.0)
     u[z["cm"][ent.index("bef/fused")] == 0] = np.nan
@@ -82,19 +82,19 @@ for i, sid in enumerate(a.ids):
         for s in ax.spines.values():
             s.set_visible(True); s.set_linewidth(0.4); s.set_color("#7a7a74")
 for j, t in enumerate(titles):
-    axes[0, j].set_title(t, fontsize=7, pad=3)
+    axes[0, j].set_title(t, fontsize=8, pad=3)
 handles = [Patch(color="#2f6db5", label="TP / flood"), Patch(color="#d6452f", label="FP"),
            Patch(color="#c98a0b", label="FN"), Patch(color="#e6e6e1", label="TN / land"),
            Patch(facecolor="#ffffff", edgecolor="#7a7a74", lw=0.4, label="Not scored"),
            plt.Line2D([], [], color="#ffd400", lw=1.0, label="Cloud / shadow")]
 fig.legend(handles=handles, loc="lower center", ncol=6, bbox_to_anchor=(0.45, -0.005), handlelength=1.2,
-           columnspacing=1.0, fontsize=6.5)
-fig.subplots_adjust(left=0.03, right=0.93, top=0.94, bottom=0.12, wspace=0.05, hspace=0.22)
+           columnspacing=1.0, fontsize=8)
+fig.subplots_adjust(left=0.03, right=0.93, top=0.91, bottom=0.12, wspace=0.05, hspace=0.22)
 cax = fig.add_axes([0.94, 0.30, 0.008, 0.5])
 cb = fig.colorbar(im, cax=cax)
-cb.ax.tick_params(labelsize=6, width=0.4, length=2)
+cb.ax.tick_params(labelsize=8, width=0.4, length=2)
 cb.outline.set_linewidth(0.4)
-cb.set_label(f"$u$ (clipped at {a.umax})", fontsize=6.5)
+cb.set_label(f"$u$ (clipped at {a.umax})", fontsize=8)
 a.out.mkdir(parents=True, exist_ok=True)
 fig.savefig(a.out / "fig_c2sms_samples.pdf")
 fig.savefig(a.out / "fig_c2sms_samples.png", dpi=200)

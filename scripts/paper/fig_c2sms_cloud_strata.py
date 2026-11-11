@@ -6,6 +6,7 @@ cloud + shadow fraction bins, artifacts/results/c2sms/cloud_groups.csv).
   --panels ab (appendix): adds (b), the paired difference fused - joint multimodal TerraMind with the 95% bootstrap
               interval over chips as a shaded band.
 Panel (a) is a grouped bar chart (zero baseline, value labels) of the two DEUF configurations and the joint model.
+Double-column width (value labels at 8 pt do not fit in one column).
 Writes <out>/<name>.{pdf,png,csv}; name = fig_c2sms_cloud_strata (a) or fig_c2sms_cloud_strata_ci (ab).
 Usage: python fig_c2sms_cloud_strata.py --results artifacts/results --out <dir> [--panels ab]
 """
@@ -42,31 +43,32 @@ xlabels = [gr.replace("-", DASH) + f"\n($n$={k})" for gr, k in zip(GROUPS, n)]
 
 style.apply()
 if a.panels == "ab":
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(style.COL1, 3.75), sharex=True,
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(style.COL2, 3.9), sharex=True,
                                    gridspec_kw={"height_ratios": [1.6, 1.0], "hspace": 0.32})
 else:
-    fig, ax1 = plt.subplots(figsize=(style.COL1, 2.3))
+    fig, ax1 = plt.subplots(figsize=(style.COL2, 2.2))
     ax2 = None
 
 rows = []
 BAR_ORDER = ["multimodal", "unet_deuf/fused", "bef/fused"]  # left to right within a stratum
-width = 0.26
+width = 0.3
 for k, e in enumerate(BAR_ORDER):
     lab, c = next((l_, c_) for e_, l_, c_, *_ in LINES if e_ == e)
     y = g[g.entry == e].set_index("group").water_iou.reindex(GROUPS).to_numpy()
     xb = x + (k - 1) * width
     ax1.bar(xb, y, width=width, color=c, edgecolor="white", linewidth=0.6, label=lab, zorder=2)
-    for xi, yi in zip(xb, y):  # value label inside the bar top
-        ax1.text(xi, yi - 0.015, f"{yi:.3f}", rotation=90, ha="center", va="top", fontsize=6,
-                 color="white", zorder=3)
+    for xi, yi in zip(xb, y):  # value label above the bar, horizontal, dark ink
+        ax1.text(xi, yi + 0.012, f"{yi:.3f}", ha="center", va="bottom", fontsize=8, color="#2b2b2b",
+                 zorder=3)
     rows += [dict(panel="a", entry=e, group=gr, value=v) for gr, v in zip(GROUPS, y)]
 ax1.set_ylabel("Flood-class IoU")
-ax1.set_ylim(0, 1.0)
+ax1.set_ylim(0, 1.1)
+ax1.set_yticks(np.arange(0, 1.01, 0.2))
 ax1.set_xlim(-0.5, len(GROUPS) - 0.5)
 ax1.grid(axis="x", visible=False)
 hd, lb = ax1.get_legend_handles_labels()
-fig.legend(hd, lb, loc="upper center", ncol=3, fontsize=6.5, handlelength=1.2,
-           columnspacing=0.8, bbox_to_anchor=(0.55, 1.0))
+fig.legend(hd, lb, loc="upper center", ncol=3, fontsize=8, handlelength=1.2,
+           columnspacing=1.5, bbox_to_anchor=(0.53, 1.0))
 
 if ax2 is not None:
     ax1.set_title("(a) Flood-class IoU", loc="left")
@@ -79,7 +81,7 @@ if ax2 is not None:
                  for gr, v, lo, hi in zip(GROUPS, d["diff"], d.ci_low, d.ci_high)]
     ax2.set_ylabel("$\\Delta$IoU vs. joint")
     ax2.set_title("(b) Difference to the joint model (95% CI)", loc="left")
-    ax2.legend(loc="upper left", fontsize=6.5, handlelength=2.0, borderaxespad=0.3, ncol=2)
+    ax2.legend(loc="upper left", fontsize=8, handlelength=2.0, borderaxespad=0.3, ncol=2)
     ax2.set_xticks(x, xlabels)
     ax2.set_xlabel("Chip cloud-and-shadow fraction")
     fig.subplots_adjust(top=0.91)
@@ -87,7 +89,7 @@ if ax2 is not None:
 else:
     ax1.set_xticks(x, xlabels)
     ax1.set_xlabel("Chip cloud-and-shadow fraction")
-    fig.subplots_adjust(top=0.90, bottom=0.24, left=0.15, right=0.98)
+    fig.subplots_adjust(top=0.88, bottom=0.22, left=0.075, right=0.99)
     name = "fig_c2sms_cloud_strata"
 
 a.out.mkdir(parents=True, exist_ok=True)
