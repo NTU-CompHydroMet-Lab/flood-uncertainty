@@ -51,8 +51,11 @@ else:
 rows = []
 for e, lab, c, m, lw in LINES:
     y = g[g.entry == e].set_index("group").water_iou.reindex(GROUPS).to_numpy()
-    ax1.plot(x, y, color=c, marker=m, lw=lw, ms=4.5, label=lab, mec="white", mew=0.6,
-             zorder=3 if e == "bef/fused" else 2)
+    if e == "unet_deuf/fused":  # hollow and larger, so a coinciding TerraMind-DEUF point stays visible inside it
+        kw = dict(ms=6.5, mfc="white", mec=c, mew=1.1)
+    else:
+        kw = dict(ms=4.0 if e == "bef/fused" else 4.5, mec="white", mew=0.6)
+    ax1.plot(x, y, color=c, marker=m, lw=lw, label=lab, zorder=4 if e == "bef/fused" else 2, **kw)
     rows += [dict(panel="a", entry=e, group=gr, value=v) for gr, v in zip(GROUPS, y)]
 ax1.set_ylabel("Flood-class IoU")
 ax1.set_ylim(0.7, 1.0)
