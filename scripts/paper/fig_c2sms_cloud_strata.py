@@ -5,6 +5,7 @@ cloud + shadow fraction bins, artifacts/results/c2sms/cloud_groups.csv).
   --panels a  (default, main text): pooled flood-class IoU per stratum and model.
   --panels ab (appendix): adds (b), the paired difference fused - joint multimodal TerraMind with the 95% bootstrap
               interval over chips as a shaded band.
+Points of the models are dodged horizontally within each stratum so that markers do not overlap.
 Writes <out>/<name>.{pdf,png,csv}; name = fig_c2sms_cloud_strata (a) or fig_c2sms_cloud_strata_ci (ab).
 Usage: python fig_c2sms_cloud_strata.py --results artifacts/results --out <dir> [--panels ab]
 """
@@ -24,12 +25,12 @@ p.add_argument("--panels", choices=["a", "ab"], default="a")
 a = p.parse_args()
 
 GROUPS = ["0-25%", "25-50%", "50-75%", "75-100%"]
-LINES = [  # entry, label, colour, linestyle, marker, width
-    ("multimodal", "Joint multimodal TerraMind", style.C["multimodal"], "-", "s", 1.4),
-    ("bef/optical", "TerraMind-EDL-S2", style.C["optical"], "--", "D", 1.0),
-    ("bef/sar", "TerraMind-EDL-S1", style.C["sar"], ":", "v", 1.0),
-    ("unet_deuf/fused", "UNet++-DEUF", style.C["unet_deuf"], "-", "^", 1.4),
-    ("bef/fused", "TerraMind-DEUF", style.C["bef"], "-", "o", 1.6),
+LINES = [  # entry, label, colour, linestyle, marker, width, horizontal offset (dodge, in stratum units)
+    ("bef/sar", "TerraMind-EDL-S1", style.C["sar"], ":", "v", 1.0, -0.16),
+    ("bef/optical", "TerraMind-EDL-S2", style.C["optical"], "--", "D", 1.0, -0.08),
+    ("multimodal", "Joint multimodal TerraMind", style.C["multimodal"], "-", "s", 1.4, 0.0),
+    ("unet_deuf/fused", "UNet++-DEUF", style.C["unet_deuf"], "-", "^", 1.4, 0.08),
+    ("bef/fused", "TerraMind-DEUF", style.C["bef"], "-", "o", 1.6, 0.16),
 ]
 DIFFS = [("bef/fused", "TerraMind-DEUF", style.C["bef"], "o"),
          ("unet_deuf/fused", "UNet++-DEUF", style.C["unet_deuf"], "^")]
@@ -50,16 +51,18 @@ else:
     ax2 = None
 
 rows = []
-for e, lab, c, ls, m, lw in LINES:
+for e, lab, c, ls, m, lw, dx in LINES:
     y = g[g.entry == e].set_index("group").water_iou.reindex(GROUPS).to_numpy()
-    ax1.plot(x, y, color=c, ls=ls, marker=m, lw=lw, ms=4 if lw > 1.2 else 3.5, label=lab,
+    ax1.plot(x + dx, y, color=c, ls=ls, marker=m, lw=lw, ms=4 if lw > 1.2 else 4.2, label=lab,
              mec="white" if lw > 1.2 else c, mew=0.6, zorder=3 if e == "bef/fused" else 2)
     rows += [dict(panel="a", entry=e, group=gr, value=v) for gr, v in zip(GROUPS, y)]
 ax1.set_ylabel("Flood-class IoU")
 ax1.set_ylim(0.6, 1.0)
-ax1.set_xlim(-0.25, len(GROUPS) - 0.75)
-fig.legend(*ax1.get_legend_handles_labels(), loc="upper center", ncol=2, fontsize=6.5, handlelength=2.2,
-           columnspacing=0.8, bbox_to_anchor=(0.55, 1.0))
+ax1.set_xlim(-0.35, len(GROUPS) - 0.65)
+hd, lb = ax1.get_legend_handles_labels()
+order = [4, 3, 2, 1, 0]
+fig.legend([hd[i] for i in order], [lb[i] for i in order], loc="upper center", ncol=2, fontsize=6.5,
+           handlelength=2.2, columnspacing=0.8, bbox_to_anchor=(0.55, 1.0))
 
 if ax2 is not None:
     ax1.set_title("(a) Flood-class IoU", loc="left")
