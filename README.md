@@ -49,6 +49,77 @@ run 與 `metrics.csv` 都在 `artifacts/models/<experiment_name>/`，事後上�
 uv run python scripts/train/train_edl.py --config configurations/edl.json --mode train --data_root /path/to/worldfloods_v2/data
 ```
 
+#### 使用 10 組 ensemble 權重初始化 EDL
+
+`configurations/edl_ensemble.json` 指向已確認存在的
+`/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/`
+底下第 0～9 組 `WF2_unetv2_bgriswirs_test_*`。資料根目錄使用同一個 NAS 下的
+`datasets/cj/cj/data/worldfloods_v2/data`，可用 `--data_root` 覆寫。
+
+```bash
+# 只檢查來源權重、輸入通道與參數尺寸，列出選中的 checkpoint；不寫檔或訓練
+uv run python scripts/train/train_edl_ensemble.py --dry_run
+
+# 一次啟動，依序訓練 10 組（使用 configurations/edl_ensemble.json）
+uv run python scripts/train/train_edl_ensemble.py
+
+# 只訓練指定的來源成員（目前 offset=10，以下輸出編號為 15～19）
+uv run python scripts/train/train_edl_ensemble.py --members 5 6 7 8 9
+```
+
+每組從仍存在的 checkpoint 中選擇 `val_bce_land_water` 最低的權重；讀取各檔案的
+`best_k_models`，並以檔名重定位舊 NAS 路徑。若完全沒有可用分數，會明確提示並改選最大 step。
+沿用 ensemble 的 `seed + i`，目前基準 seed 為 7，因此各組使用 7～16。
+`shared.member_index_offset` 目前為 10，來源 `i=0～9` 對應輸出編號 `10～19`；
+此偏移量只改輸出編號，不改來源權重或 seed 的遞增規則。未設定偏移量時從 0 開始。
+以現有 `train_edl.py` 分別建立新的 EDL 訓練。
+UNet 主體載入來源權重；2 通道分類 head 改成隨機初始化的 4 通道 EDL head。
+會先檢查全部指定成員的權重相容性，再啟動第一組訓練。
+
+輸出為 `artifacts/models/edl_ensemble/edl_from_ensemble_{10..19}/`，保留上一輪的 0～9 組。
+各自包含 `config.json`、`pretraining.json`（輸出及來源編號、來源權重、分數、seed、
+重新初始化的參數）、`batch_plot.png` 與 `checkpoint/`。
+目前沿用 EDL 的 batch size 64、最多 30 epochs。EDL 的本機 CSV logger 一律啟用，
+每次訓練的原始指標寫到成員目錄的 `logs/version_N/metrics.csv`。
+每組訓練結束後會合併續訓紀錄，輸出 `loss_history.csv` 與 `loss_curve.png`；
+從較早 checkpoint 續訓時，會以新紀錄取代該 epoch 起的舊曲線。
+`loss_history.csv` 的 epoch 從 0 開始，圖上從 1 開始。
+圖中分開顯示 training loss 與 validation loss，因為現有兩者的 class/task weights 與 KL 設定不同。
+`val_bce_*` 欄位實際是 EDL loss，圖上也會以 EDL loss 標示。
+批次訓練完成後，會將本輪已有紀錄的成員畫成
+`artifacts/models/edl_ensemble/edl_from_ensemble_10_19_loss_curves.png`，保留上一輪總覽圖，
+比較各組 training loss 與
+checkpoint monitor `val_bce_land_water`。圖直接存成 PNG，適合沒有桌面的 NAS 環境。
+
+W&B 的離線功能仍保留：`shared.wandb_mode` 支援 `disabled`（預設）與 `offline`，
+也可用環境變數覆寫。兩種模式都會保留 CSV 與 loss 圖：
+
+```bash
+# 只記錄本機 CSV 與 loss 圖
+WANDB_MODE=disabled uv run python scripts/train/train_edl_ensemble.py
+
+# 額外保存離線 W&B 紀錄及原有影像記錄，無須登入
+WANDB_MODE=offline uv run python scripts/train/train_edl_ensemble.py
+```
+
+離線 W&B 紀錄位於各成員目錄的 `wandb/`；W&B 不另存 model checkpoint artifact。
+其他訓練入口（例如 EDL-TERRAMIND）原有的 W&B 模式維持原設定。
+`--dry_run` 只檢查 CPU 上的權重與設定，不驗證完整資料集或 GPU 訓練。
+Checkpoint 選擇、權重尺寸、各組設定及 loss 紀錄合併的測試可執行：
+
+```bash
+uv run python -m pytest -c pyproject.toml -q tests/test_edl_ensemble.py tests/test_loss_plotting.py
+```
+
+批次入口會拒絕寫入非空的成員輸出目錄；已開始的成員可用保存的設定單獨續訓：
+
+```bash
+uv run python scripts/train/train_edl.py \
+  --config artifacts/models/edl_ensemble/edl_from_ensemble_0/config.json \
+  --mode train \
+  --resume_ckpt artifacts/models/edl_ensemble/edl_from_ensemble_0/checkpoint/last.ckpt
+```
+
 ### 4.2 只驗證（EDL）
 
 ```bash

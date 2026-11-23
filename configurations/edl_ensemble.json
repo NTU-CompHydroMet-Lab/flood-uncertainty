@@ -1,0 +1,70 @@
+{
+  "shared": {
+    "experiment_name": "edl_from_ensemble",
+    "seed": 7,
+    "member_index_offset": 10,
+    "model_params": {
+      "pretrained_path": null,
+      "ensemble_dirs": [
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_0/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_1/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_2/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_3/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_4/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_5/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_6/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_7/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_8/checkpoint",
+        "/home/NAS/house/chlunchen-10030/datasets/cj/cj/ML4FloodsUncertainty/models/ensemble/WF2_unetv2_bgriswirs_test_9/checkpoint"
+      ],
+      "model_folder": "artifacts/models/edl_ensemble",
+      "model_version": "v2",
+      "hyperparameters": {
+        "task_mode": "cloud_water",
+        "max_tile_size": 256,
+        "metric_monitor": "val_bce_land_water",
+        "channel_configuration": "bgriswirs",
+        "weight_problem": [0.2, 0.8],
+        "pos_weight": [[1, 20], [1, 6]],
+        "label_names": [["invalid", "clear", "cloud"], ["invalid", "land", "water"]],
+        "model_type": "unet",
+        "num_classes": 2,
+        "annealing_mode": "linear",
+        "annealing_coefficient": 0.5,
+        "annealing_step": 10,
+        "max_epochs": 30,
+        "val_every": 1,
+        "lr": 0.0001,
+        "lr_decay": 0.5,
+        "lr_patience": 2,
+        "early_stopping_patience": 7,
+        "num_channels": 6
+      }
+    },
+    "data_params": {
+      "loader_type": "local",
+      "num_workers": 20,
+      "filter_windows": {"version": "v2", "threshold_clouds": 0.8, "apply": true},
+      "download": {"train": false, "val": false, "test": false},
+      "bucket_id": "",
+      "path_to_splits": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/data/worldfloods_v2/data",
+      "train_test_split_file": "/home/NAS/house/chlunchen-10030/datasets/cj/cj/data/worldfloods_v2/data/train_test_split_from_csv.json",
+      "input_folder": "S2",
+      "target_folder": "gt",
+      "batch_size": 64,
+      "window_size": [256, 256],
+      "channel_configuration": "bgriswirs",
+      "add_mndwi_input": false,
+      "train_transformation": {"normalize": true},
+      "test_transformation": {"normalize": true}
+    },
+    "resume_from_checkpoint": false,
+    "gpus": 0,
+    "wandb_mode": "disabled",
+    "wandb_entity": "flood_uncertainty",
+    "wandb_project": "flood_uncertainty_edl"
+  },
+  "train": {},
+  "infer": {},
+  "validate_only": {}
+}

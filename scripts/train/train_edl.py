@@ -9,13 +9,13 @@ print(f"專案根目錄: {project_root}")
 import json
 import pandas as pd
 import matplotlib.pyplot as plt
-import wandb
 from typing import Any, Dict
 from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import CSVLogger, WandbLogger
 
 from flood_uncertainty.utils.config_loader import load_mode_config
+from flood_uncertainty.utils.loss_plotting import plot_run_losses
 from ml4floods.models.dataset_setup import get_dataset
 # from ml4floods.models.model_setup import get_model
 from ml4floods.models import worldfloods_model
@@ -42,6 +42,9 @@ parser.add_argument(
 args, _ = parser.parse_known_args()
 config = load_mode_config(args.config, mode=args.mode)
 data_root = args.data_root or config.data_params.path_to_splits
+wandb_mode = os.environ.get("WANDB_MODE") or config.get("wandb_mode", "disabled")
+if wandb_mode not in ("disabled", "offline"):
+    raise ValueError("EDL wandb_mode must be 'disabled' or 'offline' (no login required)")
 
 if args.resume_ckpt:
     resume_meta = torch.load(args.resume_ckpt, map_location='cpu', weights_only=False)
@@ -170,6 +173,7 @@ for _i, (xi, ax) in enumerate(zip(batch["mask"][:n_images, 1], axs[3])):
         ax.legend(handles=patches_preds_water, loc='upper right')
 
 fig.savefig("batch_plot.png")
+plt.close(fig)
 
 # =============================================================================
 # Setup Model
@@ -219,18 +223,27 @@ callbacks = [checkpoint_callback, early_stop_callback]
 print(f"The trained model will be stored in {config.model_params.model_folder}/{config.experiment_name}")
 
 # =============================================================================
-# Setup Weights and Biases Logger
+# Local CSV logging, with optional offline Weights and Biases logging
 # =============================================================================
-setup_weights_and_biases = False
-if setup_weights_and_biases:
-    # UNCOMMENT ON FIRST RUN TO LOGIN TO Weights and Biases (only needs to be done once)
-    # wandb.login()
+os.makedirs(experiment_path, exist_ok=True)
+csv_logger = CSVLogger(
+    save_dir=experiment_path,
+    name="validation_logs" if config.model_params.val_only else "logs",
+)
+loggers = []
+wandb_logger = None
+if wandb_mode == "offline":
     wandb_logger = WandbLogger(
         name=config.experiment_name,
         project=config.wandb_project,
+        save_dir=experiment_path,
+        offline=True,
+        log_model=False,
     )
-else:
-    wandb_logger = None
+    # Keep W&B first so the model's existing optional image logging still works.
+    loggers.append(wandb_logger)
+loggers.append(csv_logger)
+print(f"wandb_mode={wandb_mode}; local metrics: {csv_logger.log_dir}/metrics.csv")
 
 # =============================================================================
 # Setup Trainer
@@ -239,7 +252,7 @@ use_gpu = config.gpus is not None
 
 trainer = Trainer(
     fast_dev_run=False,
-    logger=wandb_logger,
+    logger=loggers,
     callbacks=callbacks,
     default_root_dir=f"{config.model_params.model_folder}/{config.experiment_name}",
     accumulate_grad_batches=1,
@@ -266,3 +279,11 @@ if not config.model_params.get("val_only", False):
     )
 else:
     trainer.validate(model, val_dl)
+
+csv_logger.save()
+if wandb_logger is not None:
+    wandb_logger.experiment.finish()
+if not config.model_params.val_only:
+    loss_plot = plot_run_losses(experiment_path)
+    if loss_plot is not None:
+        print(f"Loss curve saved to: {loss_plot}")
