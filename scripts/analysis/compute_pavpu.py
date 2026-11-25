@@ -92,6 +92,7 @@ CONFIG = {
     "base_output_dir": str(DEFAULT_ANALYSIS_ROOT),
     "patch_size":      3,
     "retention_target": 0.9,
+    "threshold_pixels": "prediction-valid",  # per-image only: "prediction-valid" (GT-free) or "gt-valid"
     "max_files":       None,
 }
 
@@ -124,8 +125,17 @@ def parse_args():
     parser.add_argument("--patch-size", type=int, default=CONFIG["patch_size"])
     parser.add_argument("--retention-target", type=float, default=CONFIG["retention_target"],
                         help="Retention rate / adaptive uncertainty quantile in (0, 1]. Default: 0.9.")
+    parser.add_argument("--threshold-pixels", choices=["prediction-valid", "gt-valid"],
+                        default=CONFIG["threshold_pixels"],
+                        help="per-image mode only: pixels whose quantile sets each event's threshold. "
+                             "prediction-valid (default) uses every prediction-valid pixel without GT. "
+                             "gt-valid also requires a labelled confusion-map pixel (cm != 0); a diagnostic "
+                             "that keeps unlabelled pixels such as clouds out of the threshold.")
     parser.add_argument("--max-files", type=int, default=CONFIG["max_files"])
     args = parser.parse_args()
+    if args.threshold_mode == "curve" and args.threshold_pixels != "prediction-valid":
+        parser.error("--threshold-pixels gt-valid applies to per-image mode only; "
+                     "curve thresholds already come from GT-valid pixels of the curve subset.")
     if not 0 <= args.acc_threshold <= 1:
         parser.error("--acc-threshold must be between 0 and 1.")
     if not 0 < args.retention_target <= 1:
@@ -148,7 +158,11 @@ def get_thresholds(model_type, criteria_name, base_output_dir, retention_target,
     row = df.iloc[idx]
     if acc_threshold is None:
         acc_threshold = float(row["iou"])
-    return float(row["threshold"]), acc_threshold
+    unc_threshold = float(row["threshold"])
+    if not np.isfinite(unc_threshold):
+        # A NaN threshold would silently score every eligible patch as certain.
+        raise ValueError(f"Non-finite uncertainty threshold at retention {row['retention_rate']}: {csv_path}")
+    return unc_threshold, acc_threshold
 
 
 def _read_valid_band(src, band_index):
@@ -182,13 +196,36 @@ def read_uncertainty_with_valid_mask(pred_path, criteria_config):
     return unc_map, valid_pixels
 
 
-def compute_image_uncertainty_threshold(unc_map, valid_pixels, quantile):
-    """由整個事件的有效像素取分位數，包含邊界像素，不使用 GT 或區塊平均值。"""
-    values = unc_map[valid_pixels]
+def quantile_threshold(values, quantile):
+    """門檻像素值的分位數；values 為獨立陣列，原地 partition 只改變順序，不改變內容。"""
     if values.size == 0:
         return None
-    # 布林索引已產生獨立陣列，可原地 partition，避免再複製整張有效區域。
     return float(np.quantile(values, quantile, overwrite_input=True))
+
+
+def compute_image_uncertainty_threshold(unc_map, valid_pixels, quantile):
+    """由整個事件的門檻像素取分位數，包含邊界像素，不使用區塊平均值。
+
+    預設門檻像素為預測有效像素（不使用 GT）；gt-valid 診斷另要求 cm != 0。
+    """
+    # 布林索引已產生獨立陣列，可原地 partition，避免再複製整張有效區域。
+    return quantile_threshold(unc_map[valid_pixels], quantile)
+
+
+def threshold_fractions(values, threshold, chunk_size=1 << 24):
+    """門檻像素中恰等於門檻、以及 >= 門檻的比例，用來辨識同值飽和（例如 DST Q90 = 1）。
+
+    在 float64 下比較：float32 陣列直接與門檻比較時，內插出的門檻可能先被捨入成 float32，
+    誤判同值。分段轉型以限制大影像的暫存記憶體。
+    """
+    if values.size == 0:
+        return np.nan, np.nan
+    ties = flagged = 0
+    for start in range(0, values.size, chunk_size):
+        part = values[start:start + chunk_size].astype(np.float64)
+        ties += int(np.count_nonzero(part == threshold))
+        flagged += int(np.count_nonzero(part >= threshold))
+    return ties / values.size, flagged / values.size
 
 
 def compute_pavpu_for_image(cm_map, unc_map, patch_size, acc_threshold, unc_threshold, *, valid_pixels=None):
@@ -274,6 +311,7 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
     pred_root  = config["pred_root"]
     patch_size = config["patch_size"]
     threshold_mode = config["threshold_mode"]
+    threshold_pixels = config["threshold_pixels"]
     quantile = config["retention_target"]
     threshold_label = f"Q{quantile * 100:g}" if threshold_mode == "per-image" else "unc_threshold"
 
@@ -307,17 +345,26 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
                 continue
 
         unc_map, valid_pixels = read_uncertainty_with_valid_mask(pred_path, crit_config)
+        with rasterio.open(cm_path) as src:  # Read once; the gt-valid diagnostic needs it before the threshold.
+            cm_map = src.read(1)
+        if cm_map.shape != unc_map.shape:
+            raise ValueError(f"Confusion map and prediction shapes differ: {cm_path}, {pred_path}")
+
+        # Pixels that set the per-image threshold, and in every mode the population for the tie/flagged fractions.
+        source_pixels = valid_pixels
+        if threshold_mode == "per-image" and threshold_pixels == "gt-valid":
+            source_pixels = valid_pixels & (cm_map != 0)
+        source_values = unc_map[source_pixels]
         image_unc_threshold = unc_threshold
         if threshold_mode == "per-image":
-            image_unc_threshold = compute_image_uncertainty_threshold(unc_map, valid_pixels, quantile)
+            # Without gt-valid, the threshold uses prediction pixels only; GT enters through scoring.
+            image_unc_threshold = quantile_threshold(source_values, quantile)
             if image_unc_threshold is None:
-                tqdm.write(f"[SKIP] No valid uncertainty pixels: {pred_path}")
-                del unc_map, valid_pixels
+                tqdm.write(f"[SKIP] No {threshold_pixels} uncertainty pixels: {pred_path}")
+                del unc_map, valid_pixels, cm_map, source_pixels, source_values
                 continue
-
-        # 自適應門檻已經確定，GT／混淆圖僅參與後續評分。
-        with rasterio.open(cm_path) as src:
-            cm_map = src.read(1)
+        tie_fraction, flagged_pixel_fraction = threshold_fractions(source_values, image_unc_threshold)
+        del source_pixels, source_values
 
         n_ac, n_au, n_ic, n_iu, pavpu = compute_pavpu_for_image(
             cm_map, unc_map, patch_size, acc_threshold, image_unc_threshold,
@@ -350,6 +397,8 @@ def process_all_images(config, criteria_name, acc_threshold, unc_threshold):
             "uncertain_fraction": uncertain_fraction,
             "pavpu":    pavpu,
             "unc_threshold": image_unc_threshold,
+            "threshold_tie_fraction": tie_fraction,
+            "threshold_flagged_pixel_fraction": flagged_pixel_fraction,
         })
 
         totals["n_ac"] += n_ac
@@ -397,6 +446,9 @@ def save_results(per_image_rows, totals, subset, output_path, metadata):
         "n_valid_patches": df["n_valid_patches"].mean(),
         "uncertain_fraction": df["uncertain_fraction"].mean(),
         "pavpu":    df["pavpu"].mean(),
+        # Unweighted image means; OVERALL leaves these per-image diagnostics empty.
+        "threshold_tie_fraction": df["threshold_tie_fraction"].mean(),
+        "threshold_flagged_pixel_fraction": df["threshold_flagged_pixel_fraction"].mean(),
     }])
 
     result_df = pd.concat([df, overall_row, average_row], ignore_index=True)
@@ -417,6 +469,7 @@ def main():
     config["pred_root"] = args.pred_root
     config["patch_size"] = args.patch_size
     config["retention_target"] = args.retention_target
+    config["threshold_pixels"] = args.threshold_pixels
     config["max_files"] = args.max_files
 
     model_type = config["model_type"]
@@ -429,7 +482,10 @@ def main():
     retention_target = config["retention_target"]
 
     thresholds = {}
+    threshold_pixels = config["threshold_pixels"]
     output_folder = f"pavpu_per_image_q{retention_target * 100:g}"
+    if threshold_pixels == "gt-valid":
+        output_folder += "_gt_valid"  # Diagnostic results never share a folder with the default variant.
     if threshold_mode == "curve":
         # 僅 curve 模式讀 CSV，並在計算大影像前確認來源齊全。
         thresholds = {
@@ -445,7 +501,7 @@ def main():
     if threshold_mode == "curve":
         print(f"Curve subset: {curve_subset}, curve root: {curve_root}")
     else:
-        print(f"Threshold source: each event's valid pixels, Q{retention_target * 100:g}")
+        print(f"Threshold source: each event's {threshold_pixels} pixels, Q{retention_target * 100:g}")
     print(f"Output directory: {output_dir}")
 
     for criteria_name in SELECTED_CRITERIA[model_type]:
@@ -479,6 +535,10 @@ def main():
             "retention_target": retention_target,
             "acc_threshold": acc_threshold,
             "patch_size": config["patch_size"],
+            # Pixels behind the threshold (curve: GT-valid pixels of the curve subset) and behind the
+            # tie/flagged fractions (curve: this subset's prediction-valid pixels); equal in per-image mode.
+            "threshold_pixels": "gt-valid" if threshold_mode == "curve" else threshold_pixels,
+            "diagnostic_pixels": "prediction-valid" if threshold_mode == "curve" else threshold_pixels,
         }
         if threshold_mode == "curve":
             metadata["unc_threshold"] = unc_threshold

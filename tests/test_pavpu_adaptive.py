@@ -150,3 +150,67 @@ def test_per_image_pipeline_is_gt_independent_and_preserves_csv_statistics(pavpu
     )
     assert changed.loc["event_b", "n_ic"] == 9
     assert changed.loc["event_b", "pavpu"] == 0
+
+
+@pytest.mark.parametrize("threshold_pixels, q90, fraction, n_au", [
+    ("prediction-valid", 1.0, 1 / 3, 0),
+    ("gt-valid", 0.75, 1 / 2, 1),
+])
+def test_gt_valid_threshold_excludes_unlabelled_pixels(pavpu, tmp_path, monkeypatch, threshold_pixels, q90, fraction, n_au):
+    # Three 3x3 patches: (TP, u=.25), (TP, u=.75), (unlabelled, u=1). Only the threshold source differs.
+    model_dir = tmp_path / "predictions/test/EDL"
+    uncertainty = np.repeat(np.repeat([[0.25, 0.75, 1.0]], 3, axis=0), 3, axis=1).astype(np.float32)
+    cm = np.repeat(np.repeat([[4, 4, 0]], 3, axis=0), 3, axis=1)
+    write_tif(model_dir / "event_output_EDL.tif", edl_bands(uncertainty), EDL_DESCRIPTIONS)
+    write_tif(model_dir / "cm_event_output_EDL.tif", cm[np.newaxis])
+    monkeypatch.setitem(pavpu.SELECTED_CRITERIA, "EDL", ["Water_DST_Uncertainty"])
+    option = [] if threshold_pixels == "prediction-valid" else ["--threshold-pixels", "gt-valid"]  # default stays GT-free
+    monkeypatch.setattr(sys, "argv", [
+        "compute_pavpu.py", "--model-type", "EDL", "--subset", "test", "--threshold-mode", "per-image",
+        "--acc-threshold", "0.5", "--pred-root", str(tmp_path / "predictions"),
+        "--output-dir", str(tmp_path / "results"), *option,
+    ])
+    pavpu.main()
+    folder = "pavpu_per_image_q90" if threshold_pixels == "prediction-valid" else "pavpu_per_image_q90_gt_valid"
+    result = pd.read_csv(tmp_path / "results/EDL" / folder / "pavpu_Water_DST_Uncertainty.csv").set_index("filename")
+
+    assert result.loc["event", "unc_threshold"] == pytest.approx(q90)
+    assert result.loc["event", "threshold_tie_fraction"] == pytest.approx(fraction)
+    assert result.loc["event", "threshold_flagged_pixel_fraction"] == pytest.approx(fraction)
+    # Patch eligibility and accuracy never depend on the threshold population; only certainty does.
+    assert result.loc["event", "n_valid_patches"] == 2
+    assert result.loc["event", "n_ac"] + result.loc["event", "n_au"] == 2
+    assert result.loc["event", "n_au"] == n_au
+    assert result["threshold_pixels"].eq(threshold_pixels).all()
+    assert result["diagnostic_pixels"].eq(threshold_pixels).all()
+    assert np.isnan(result.loc["OVERALL", "threshold_tie_fraction"])
+    assert result.loc["AVERAGE", "threshold_tie_fraction"] == pytest.approx(fraction)
+
+
+def test_threshold_fractions_compare_an_interpolated_threshold_in_float64(pavpu):
+    # Nine pixels at 0.5 and one at the next float32: a threshold strictly between them has no ties.
+    upper = np.nextafter(np.float32(0.5), np.float32(1))
+    values = np.array([0.5] * 9 + [upper], dtype=np.float32)
+    threshold = 0.5 + 0.1 * (float(upper) - 0.5)  # Rounds to 0.5 in float32.
+    assert np.float32(threshold) == np.float32(0.5)
+    assert pavpu.threshold_fractions(values, threshold) == (0.0, pytest.approx(0.1))
+    assert pavpu.threshold_fractions(values, threshold, chunk_size=3) == (0.0, pytest.approx(0.1))
+
+
+def test_curve_threshold_must_be_finite(pavpu, tmp_path):
+    curve_dir = tmp_path / "EDL"
+    curve_dir.mkdir()
+    pd.DataFrame({"retention_rate": [0.9], "threshold": [np.nan], "iou": [0.8]}).to_csv(
+        curve_dir / "retention_Water_DST_Uncertainty.csv", index=False,
+    )
+    with pytest.raises(ValueError, match="Non-finite"):
+        pavpu.get_thresholds("EDL", "Water_DST_Uncertainty", tmp_path, 0.9, acc_threshold=0.5)
+
+
+def test_gt_valid_threshold_is_rejected_in_curve_mode(pavpu, monkeypatch):
+    monkeypatch.setattr(sys, "argv", [
+        "compute_pavpu.py", "--threshold-mode", "curve", "--acc-threshold", "0.5", "--threshold-pixels", "gt-valid",
+    ])
+    with pytest.raises(SystemExit) as error:
+        pavpu.parse_args()
+    assert error.value.code == 2
